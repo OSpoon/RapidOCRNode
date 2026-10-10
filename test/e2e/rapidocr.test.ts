@@ -1,6 +1,7 @@
 import type { RapidOCRResult } from '../../src/types.js'
 import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
+import { env } from 'node:process'
 import sharp from 'sharp'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { TEST_FIXTURE_ASSETS } from '../../model-assets.mjs'
@@ -21,7 +22,7 @@ interface ExpectedOutput {
   upstream: string
 }
 
-const modelsDirectory = resolve('models')
+const modelsDirectory = resolve(env.RAPIDOCR_MODEL_DIR || 'models')
 const packageName: string = 'rapidocr-node'
 const samplePath = resolve(modelsDirectory, 'ch_en_num.jpg')
 const expected = JSON.parse(await readFile(new URL('../fixtures/ch_en_num.expected.json', import.meta.url), 'utf8')) as ExpectedOutput
