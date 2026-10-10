@@ -5,6 +5,12 @@ export default antfu(
   {
     type: 'lib',
     pnpm: true,
-    antislop: true,
+  },
+  {
+    files: ['scripts/**/*.mjs'],
+    rules: {
+      'no-unused-vars': 'error',
+      'unused-imports/no-unused-vars': 'off',
+    },
   },
 )

@@ -10,6 +10,7 @@ jobs:
     uses: sxzz/workflows/.github/workflows/release.yml@main
     with:
       publish: true
+      build: 'pnpm run ci && pnpm run test:e2e'
     permissions:
       contents: write
       id-token: write

@@ -8,7 +8,8 @@ coverage
 dist
 lib-cov
 logs
+models/
+*.onnx
 node_modules
 temp
 .eslintcache
-.agents/skills

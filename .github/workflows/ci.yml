@@ -1,4 +1,4 @@
-name: Unit Test
+name: CI
 
 on:
   push:
@@ -9,11 +9,24 @@ on:
 permissions: {}
 
 jobs:
-  unit-test:
-    uses: sxzz/workflows/.github/workflows/unit-test.yml@main
-
-  # coverage:
-  #   uses: sxzz/workflows/.github/workflows/coverage.yml@main
-  #   needs: unit-test
-  #   permissions:
-  #     id-token: write
+  checks:
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        node-version: [22, 24]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.8.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint && pnpm knip && pnpm test && pnpm typecheck && pnpm build
+      - run: pnpm test:e2e
+        if: matrix.node-version == 24
