@@ -38,6 +38,8 @@ finally {
 
 输入可使用本地文件路径、编码后的 `Buffer` / `Uint8Array`，或 RGB 像素数据。识别结果包含文字、置信度、原图坐标文本框和各阶段耗时。可用 `useDetection: false` 识别已裁切的单行文字。
 
+可运行的独立 npm 安装演示见 [`demo/`](./demo/README.md)。它从 npm 安装已发布版本，并用附带的 SVG 样例演示 OCR 和首次使用时的模型下载。
+
 单独识别文本行时可使用 `TextRecognizer`：
 
 ```ts

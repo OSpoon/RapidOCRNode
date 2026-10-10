@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="480" viewBox="0 0 960 480">
+  <rect width="960" height="480" rx="28" fill="#f3f6fb" />
+  <rect x="40" y="40" width="880" height="400" rx="20" fill="#ffffff" />
+  <rect x="80" y="82" width="12" height="300" rx="6" fill="#2563eb" />
+  <g fill="#182230" font-family="Arial, Helvetica, sans-serif">
+    <text x="125" y="164" font-size="58" font-weight="700">RapidOCR Node</text>
+    <text x="125" y="236" font-size="42">Install from npm</text>
+    <text x="125" y="300" font-size="42">Node.js 22+</text>
+    <text x="125" y="364" font-size="34" fill="#526174">Text recognition demo</text>
+  </g>
+</svg>
