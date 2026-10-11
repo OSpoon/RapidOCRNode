@@ -10,6 +10,7 @@ import { mkdir, open, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { homedir, platform } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { env, pid } from 'node:process'
+import pRetry from 'p-retry'
 import { MODEL_VERSION } from '../../model-assets.mjs'
 import { resolveModelRoute } from './registry.js'
 
@@ -49,6 +50,17 @@ const MODEL_KEYS = [
 
 const DOWNLOAD_RANGE_SIZE = 8 * 1024 * 1024
 const downloadsInProgress = new Map<string, Promise<string>>()
+
+function isRetryableHttpStatus(status: number): boolean {
+  return status === 404 || status === 408 || status === 425 || status === 429 || status >= 500
+}
+
+class RetryableDownloadResponseError extends Error {
+  constructor(file: string, status: number, statusText: string) {
+    super(`Download failed for ${file}: ${status} ${statusText}`)
+    this.name = 'RetryableDownloadResponseError'
+  }
+}
 
 /** Downloads the selected runtime models and recognition dictionary. */
 export async function downloadModels(options: DownloadModelsOptions = {}): Promise<DownloadedModelPaths> {
@@ -177,7 +189,19 @@ async function downloadAndVerify(asset: ModelAsset, path: string): Promise<strin
   try {
     let response: Response
     try {
-      response = await fetch(asset.url, { signal: AbortSignal.timeout(120_000) })
+      response = await pRetry(async () => {
+        const attempt = await fetch(asset.url, { signal: AbortSignal.timeout(120_000) })
+        if (!attempt.ok && isRetryableHttpStatus(attempt.status)) {
+          throw new RetryableDownloadResponseError(asset.file, attempt.status, attempt.statusText)
+        }
+        return attempt
+      }, {
+        maxTimeout: 2_000,
+        minTimeout: 500,
+        randomize: true,
+        retries: 3,
+        shouldRetry: ({ error }) => error instanceof RetryableDownloadResponseError,
+      })
     }
     catch {
       return await downloadByRanges(asset, path)

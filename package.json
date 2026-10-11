@@ -60,6 +60,7 @@
     "clipper-lib": "catalog:",
     "commander": "catalog:",
     "onnxruntime-node": "catalog:",
+    "p-retry": "catalog:",
     "sharp": "catalog:",
     "yaml": "catalog:"
   },

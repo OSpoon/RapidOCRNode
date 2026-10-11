@@ -29,6 +29,21 @@ describe('verified ONNX model downloads', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
+  it('retries temporary model host errors before verifying the downloaded asset', async () => {
+    const directory = await makeTemporaryDirectory()
+    const contents = Buffer.from('verified model payload')
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response('temporarily unavailable', { status: 502 }))
+      .mockResolvedValueOnce(new Response('not found', { status: 404 }))
+      .mockResolvedValueOnce(new Response(contents))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const path = await downloadVerifiedAsset(createAsset(contents), directory)
+
+    expect(await readFile(path)).toEqual(contents)
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+  })
+
   it('retries a truncated response with checksum-verified byte ranges', async () => {
     const directory = await makeTemporaryDirectory()
     const contents = Buffer.alloc(8 * 1024 * 1024 + 5, 0x61)
