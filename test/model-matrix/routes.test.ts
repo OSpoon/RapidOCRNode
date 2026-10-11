@@ -92,10 +92,11 @@ const onnxSingleCharacterWordBoxReferences = JSON.parse(await readFile(new URL('
 const providerModelCases = modelProviders.flatMap(provider => provider.enabled
   ? modelRouteCases.map(route => ({ provider, route }))
   : [])
-let api: typeof import('rapidocr-node')
+let api: typeof import('../../src/index.js')
 
 beforeAll(async () => {
-  api = await import('rapidocr-node')
+  const packageName: string = 'rapidocr-node'
+  api = await import(packageName)
   await Promise.all(TEST_FIXTURE_ASSETS.map(asset => downloadVerifiedAsset(asset, modelsDirectory)))
   await Promise.all([
     ['ch_en_num.jpg', 'ch_en_num-sharp.png'],
