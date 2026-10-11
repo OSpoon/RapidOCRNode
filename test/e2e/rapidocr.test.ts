@@ -620,7 +620,6 @@ describe('rapidocr with pinned upstream models', () => {
           result.lines,
           testCase.lines,
           0.03,
-          knownRuntimeTextDifferences[testCase.modelKey] ?? [],
         )
       }
       finally {
