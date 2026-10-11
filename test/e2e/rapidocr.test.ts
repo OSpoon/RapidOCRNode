@@ -150,6 +150,8 @@ const hasCUDA = supportedExecutionProviders.includes('cuda')
 const hasDirectML = supportedExecutionProviders.includes('dml')
 const testCUDA = env.RAPIDOCR_TEST_CUDA === '1'
 const testDirectML = env.RAPIDOCR_TEST_DIRECTML === '1'
+const testTensorRT = env.RAPIDOCR_TEST_TENSORRT === '1'
+const testWebGPU = env.RAPIDOCR_TEST_WEBGPU === '1'
 const cudaDeviceId = readNonNegativeIntegerEnv('RAPIDOCR_CUDA_DEVICE_ID')
 const directMLDeviceId = readNonNegativeIntegerEnv('RAPIDOCR_DIRECTML_DEVICE_ID')
 const samplePath = resolve(modelsDirectory, 'ch_en_num.jpg')
@@ -365,7 +367,7 @@ describe('rapidocr with pinned upstream models', () => {
     }
   }, 120_000)
 
-  it.skipIf(!hasWebGPU)('matches the pinned real-model output with WebGPU across all OCR stages', async () => {
+  it.skipIf(!testWebGPU || !hasWebGPU)('matches the pinned real-model output with WebGPU across all OCR stages', async () => {
     const api = await import(packageName) as PackageApi
     const instance = await api.RapidOCR.create({
       executionProviders: ['webgpu', 'cpu'],
@@ -389,6 +391,10 @@ describe('rapidocr with pinned upstream models', () => {
       expect(hasCUDA, 'RAPIDOCR_TEST_CUDA was set, but CUDA is absent from this ONNX Runtime build.').toBe(true)
     if (testDirectML)
       expect(hasDirectML, 'RAPIDOCR_TEST_DIRECTML was set, but DirectML is absent from this ONNX Runtime build.').toBe(true)
+    if (testTensorRT)
+      expect(hasTensorRT, 'RAPIDOCR_TEST_TENSORRT was set, but TensorRT is absent from this ONNX Runtime build.').toBe(true)
+    if (testWebGPU)
+      expect(hasWebGPU, 'RAPIDOCR_TEST_WEBGPU was set, but WebGPU is absent from this ONNX Runtime build.').toBe(true)
   })
 
   it.skipIf(!testCUDA || !hasCUDA)('matches the pinned full-page output with CUDA across all OCR stages', async () => {
@@ -429,7 +435,7 @@ describe('rapidocr with pinned upstream models', () => {
     }
   }, 120_000)
 
-  it.skipIf(!hasTensorRT)('matches the pinned real-model output with the ONNX Runtime TensorRT provider', async () => {
+  it.skipIf(!testTensorRT || !hasTensorRT)('matches the pinned real-model output with the ONNX Runtime TensorRT provider', async () => {
     const api = await import(packageName) as PackageApi
     const instance = await api.RapidOCR.create({
       executionProviders: ['tensorrt', 'cuda', 'cpu'],
