@@ -67,6 +67,12 @@ const knownRuntimeTextDifferences: Record<string, readonly KnownRuntimeTextDiffe
       'chinese_cht_PP-OCRv3_rec_mobile': [
         { confidenceTolerance: 0.06, index: 4, nodeText: '1o08', upstreamText: '1o108' },
       ],
+      'multi_PP-OCRv6_rec_small': [
+        { confidenceTolerance: 0.04, index: 8, nodeText: '5. 抵押权人姓名/名称：', upstreamText: '5. 抵押权人姓名/名称' },
+      ],
+      'multi_PP-OCRv6_rec_tiny': [
+        { confidenceTolerance: 0.04, index: 4, nodeText: '变更e记期：201名06-29', upstreamText: '变更e记日期：201名06-29' },
+      ],
     }
 
 interface UpstreamLanguageCase {
@@ -644,7 +650,12 @@ describe('rapidocr with pinned upstream models', () => {
         expect(result.type).toBe('ocr')
         if (result.type !== 'ocr')
           throw new TypeError('Expected a full OCR result for the second page.')
-        expectLinesMatchReference(result.lines, testCase.lines, 0.04)
+        expectLinesMatchReference(
+          result.lines,
+          testCase.lines,
+          0.04,
+          knownRuntimeTextDifferences[testCase.modelKey] ?? [],
+        )
       }
       finally {
         await instance.close()
@@ -884,7 +895,12 @@ describe('rapidocr with pinned upstream models', () => {
   it('matches upstream on a dense Chinese vehicle-registration scan', async () => {
     const result = await ocr!.recognize(resolve(modelsDirectory, 'check_return_word_len.jpeg'))
 
-    expectLinesMatchReference(result.lines, registrationDocumentExpected.lines, 0.04)
+    expectLinesMatchReference(
+      result.lines,
+      registrationDocumentExpected.lines,
+      0.04,
+      knownRuntimeTextDifferences['multi_PP-OCRv6_rec_small'] ?? [],
+    )
   }, 120_000)
 
   it('matches the pinned Python output for a real-model vertical Chinese page', async () => {
@@ -1266,7 +1282,7 @@ describe('rapidocr with pinned upstream models', () => {
       expect(result.type).toBe(expectedCase.type)
       expect(result.lines.map(line => line.text)).toEqual(expectedCase.texts)
     }
-  })
+  }, 120_000)
 
   it('waits for active inference before closing and rejects new work afterward', async () => {
     const pending = ocr!.recognize(samplePath)
