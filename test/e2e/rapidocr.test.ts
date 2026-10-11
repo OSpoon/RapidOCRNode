@@ -61,12 +61,17 @@ interface KnownRuntimeTextDifference {
   upstreamText: string
 }
 
-const knownRuntimeTextDifferences: Record<string, readonly KnownRuntimeTextDifference[]> = arch === 'arm64'
+const knownRecognitionFullPageTextDifferences: Record<string, readonly KnownRuntimeTextDifference[]> = arch === 'arm64'
   ? {}
   : {
       'chinese_cht_PP-OCRv3_rec_mobile': [
         { confidenceTolerance: 0.06, index: 4, nodeText: '1o08', upstreamText: '1o108' },
       ],
+    }
+
+const knownChineseVehiclePageTextDifferences: Record<string, readonly KnownRuntimeTextDifference[]> = arch === 'arm64'
+  ? {}
+  : {
       'multi_PP-OCRv6_rec_small': [
         { confidenceTolerance: 0.04, index: 8, nodeText: '5. 抵押权人姓名/名称：', upstreamText: '5. 抵押权人姓名/名称' },
       ],
@@ -626,6 +631,7 @@ describe('rapidocr with pinned upstream models', () => {
           result.lines,
           testCase.lines,
           0.03,
+          knownRecognitionFullPageTextDifferences[testCase.modelKey] ?? [],
         )
       }
       finally {
@@ -659,7 +665,7 @@ describe('rapidocr with pinned upstream models', () => {
           result.lines,
           testCase.lines,
           0.04,
-          knownRuntimeTextDifferences[testCase.modelKey] ?? [],
+          knownChineseVehiclePageTextDifferences[testCase.modelKey] ?? [],
         )
       }
       finally {
@@ -904,7 +910,7 @@ describe('rapidocr with pinned upstream models', () => {
       result.lines,
       registrationDocumentExpected.lines,
       0.04,
-      knownRuntimeTextDifferences['multi_PP-OCRv6_rec_small'] ?? [],
+      knownChineseVehiclePageTextDifferences['multi_PP-OCRv6_rec_small'] ?? [],
     )
   }, 120_000)
 
