@@ -1,0 +1,86 @@
+{
+  "upstream": "RapidOCR v3.10.0",
+  "referenceRuntime": {
+    "python": "3.11.13",
+    "rapidocr": "3.10.0",
+    "onnxruntime": "1.30.0",
+    "opencv": "5.0.0",
+    "numpy": "2.4.6"
+  },
+  "image": "chinese-cht-synthetic.png",
+  "font": "RapidOCR v3.10.0 resources/fonts/chinese_cht.ttf (SHA-256 5ce814960d0cdea1dd647180636babc1cf6a0acf0a9a9019424f4689acedd9ea)",
+  "generation": "Pillow 12.3.0 RGB page, 1600x480, 64 px font, 48 px left margin, 130 px line spacing",
+  "pipeline": {
+    "detection": "PP-OCRv6 ch small",
+    "classification": "PP-OCRv4 ch mobile",
+    "recognition": "PP-OCRv4 chinese_cht mobile"
+  },
+  "lines": [
+    {
+      "text": "繁體中文辦識測試",
+      "confidence": 0.99192,
+      "box": [
+        [
+          44.0,
+          35.0
+        ],
+        [
+          565.0,
+          35.0
+        ],
+        [
+          565.0,
+          109.0
+        ],
+        [
+          44.0,
+          109.0
+        ]
+      ]
+    },
+    {
+      "text": "臺灣繁體中文模型",
+      "confidence": 0.99998,
+      "box": [
+        [
+          45.0,
+          166.0
+        ],
+        [
+          562.0,
+          166.0
+        ],
+        [
+          562.0,
+          239.0
+        ],
+        [
+          45.0,
+          239.0
+        ]
+      ]
+    },
+    {
+      "text": "今天天氣很好，請辦識這段文字。",
+      "confidence": 0.97349,
+      "box": [
+        [
+          45.0,
+          295.0
+        ],
+        [
+          982.0,
+          295.0
+        ],
+        [
+          982.0,
+          370.0
+        ],
+        [
+          45.0,
+          370.0
+        ]
+      ]
+    }
+  ]
+}

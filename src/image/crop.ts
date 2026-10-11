@@ -1,11 +1,11 @@
+import type { Point, TextBox } from '../shared/types.js'
 /*
  * TypeScript adaptation of the RapidOCR v3.10.0 image crop and rotation processing.
  * Copyright (c) RapidOCR Authors; Node.js changes copyright (c) 2026 OSpoon.
  * Licensed under Apache-2.0. See LICENSE.md and NOTICE.md.
  */
 import type { DecodedRgbImage } from './image.js'
-import type { Point, TextBox } from './types.js'
-import { warpPerspectiveRgbOpenCv } from './detector.js'
+import { warpPerspectiveRgbOpenCv } from './opencv.js'
 
 export async function cropPerspective(image: DecodedRgbImage, box: TextBox): Promise<DecodedRgbImage> {
   const [topLeft, topRight, bottomRight, bottomLeft] = box

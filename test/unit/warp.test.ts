@@ -1,0 +1,92 @@
+import { describe, expect, it } from 'vitest'
+import { warpPerspectiveRgbOpenCv5Fp16 } from '../../src/image/warp.js'
+
+describe('openCV 5 ARM64 FP16 perspective warp', () => {
+  it('matches the OpenCV 5 RGB cubic reference for an oblique crop', () => {
+    const image = {
+      data: Uint8Array.from({ length: 8 * 6 * 3 }, (_, index) => (index * 37 + 13) & 0xFF),
+      height: 6,
+      width: 8,
+    }
+    const inverseTransform = [
+      1.0208444667980312,
+      -0.09420967841820399,
+      1.2558860091148192,
+      0.09828250200791114,
+      1.1929823749985857,
+      0.5023544036459276,
+      -0.0021883787594736068,
+      0.023525073909279225,
+      1.0047088072918555,
+    ]
+
+    const result = warpPerspectiveRgbOpenCv5Fp16(image, 5, 4, inverseTransform)
+
+    expect(result).toEqual({
+      data: Uint8Array.from([
+        202,
+        75,
+        117,
+        144,
+        138,
+        126,
+        168,
+        210,
+        55,
+        98,
+        135,
+        182,
+        131,
+        168,
+        206,
+        146,
+        105,
+        143,
+        194,
+        26,
+        61,
+        86,
+        140,
+        133,
+        175,
+        212,
+        5,
+        44,
+        81,
+        138,
+        210,
+        31,
+        69,
+        93,
+        91,
+        150,
+        194,
+        231,
+        15,
+        51,
+        88,
+        123,
+        152,
+        188,
+        227,
+        112,
+        79,
+        155,
+        197,
+        236,
+        37,
+        73,
+        111,
+        100,
+        154,
+        192,
+        239,
+        50,
+        92,
+        128,
+      ]),
+      height: 4,
+      width: 5,
+    })
+  })
+})

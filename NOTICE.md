@@ -1,22 +1,5 @@
 # Notices
 
-## RapidOCR source
+RapidOCR Node is an independent Node.js implementation following the model routes and OCR processing flow of [RapidOCR](https://github.com/RapidAI/RapidOCR). It is not an official RapidOCR release and is not endorsed by the RapidOCR authors.
 
-This project adapts the text detection, image processing, classification, and
-recognition pipeline from RapidOCR v3.10.0.
-
-Copyright (c) 2021 RapidOCR Authors. All rights reserved.
-Copyright (c) 2021 RapidAI. All rights reserved.
-
-The adapted code and changes made for RapidOCR Node are licensed under the
-Apache License, Version 2.0. The full license is in `LICENSE.md`.
-
-RapidOCR is an independent upstream project. This package is not an official
-RapidOCR release and is not endorsed by the RapidOCR authors.
-
-## Test assets
-
-Default models and the recognition dictionary are downloaded into a local
-cache on first use; upstream sample images are downloaded for local and CI
-tests. These files are not included in the npm package. Their pinned sources,
-checksums, and licensing references are listed in `MODEL-LICENSES.md`.
+This project's source code is distributed under Apache-2.0. Third-party packages retain their own licenses and notices. PP-OCR model assets, recognition dictionaries, fonts, and test images are obtained from their upstream sources and remain subject to their respective ownership and license terms; see [`MODEL-LICENSES.md`](./MODEL-LICENSES.md).

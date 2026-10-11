@@ -5,12 +5,49 @@ on:
     tags:
       - 'v*'
 
+permissions: {}
+
 jobs:
   release:
-    uses: sxzz/workflows/.github/workflows/release.yml@main
-    with:
-      publish: true
-      build: 'pnpm run ci && pnpm run test:e2e'
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
       id-token: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 12.8.1
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+      - name: Install npm CLI with Trusted Publishing support
+        run: npm install --global npm@11.12.1
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run ci
+      - run: pnpm run test:e2e
+      - run: pnpm run test:models
+      - name: Pack and verify the npm package
+        run: |
+          package_directory="$RUNNER_TEMP/rapidocr-release-package"
+          mkdir -p "$package_directory"
+          pnpm pack --pack-destination "$package_directory"
+          archive="$(find "$package_directory" -maxdepth 1 -name 'rapidocr-node-*.tgz' -print -quit)"
+          test -n "$archive"
+          tar -tzf "$archive" | grep -qx 'package/dist/index.mjs'
+          tar -tzf "$archive" | grep -qx 'package/dist/cli.mjs'
+      - name: Generate GitHub release notes
+        run: pnpx changelogithub
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Ensure GitHub release exists
+        run: gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --generate-notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish to npm
+        run: npm publish --access public

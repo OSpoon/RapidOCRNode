@@ -1,32 +1,27 @@
 # RapidOCR Node
 
-面向 Node.js 的 RapidOCR 实现。使用 ONNX Runtime 在本地运行 PP-OCR 模型，支持中文、英文及数字识别。
+面向 Node.js 的 RapidOCR 实现，按 [RapidOCR](https://github.com/RapidAI/RapidOCR) 的模型路由和 OCR 流程处理文本检测、方向分类与文字识别。推理使用 [ONNX Runtime Node](https://github.com/microsoft/onnxruntime)，默认在 CPU 上运行。
 
 [![CI](https://github.com/OSpoon/RapidOCRNode/actions/workflows/ci.yml/badge.svg)](https://github.com/OSpoon/RapidOCRNode/actions/workflows/ci.yml)
 [![npm](https://img.shields.io/npm/v/rapidocr-node)](https://www.npmjs.com/package/rapidocr-node)
 [![License](https://img.shields.io/github/license/OSpoon/RapidOCRNode)](./LICENSE.md)
 
-## 📝 简介
-
-RapidOCR Node 按照 [RapidOCR](https://github.com/RapidAI/RapidOCR) 的模型与处理流程实现，可在 Node.js 应用中本地运行文本检测、方向分类和文本识别。
-
-首次初始化时，如果默认模型尚未缓存，程序会下载并校验 PP-OCRv6 small 模型及字典。模型保存在操作系统缓存目录，后续推理可离线运行；npm 安装不会下载模型。
-
-## 📦 安装
+## 安装
 
 ```sh
 npm install rapidocr-node
 ```
 
-需要 Node.js 22 或更高版本。推理使用 ONNX Runtime CPU。首次下载默认模型需要联网；也可预先调用 `downloadModels()`，或指定本地模型路径和缓存目录。
+需要 Node.js 24 或更高版本。首次 OCR 会按所选模型路由下载所需 ONNX 模型和识别字典，校验 SHA-256 后放入本机缓存；npm 安装和实例创建本身不会下载模型。模型可预先用 `downloadModels()` 下载，也可指定本地模型路径。
 
-## 🚀 快速开始
+CPU 是默认执行提供程序。可通过 `executionProviders` 配置 ONNX Runtime 执行提供程序；是否可用取决于当前 `onnxruntime-node` 构建、操作系统和硬件。不可用的提供程序会发出警告并回退到 CPU。
+
+## 快速开始
 
 ```ts
 import { RapidOCR } from 'rapidocr-node'
 
 const ocr = await RapidOCR.create()
-
 try {
   const result = await ocr.recognize('./receipt.jpg')
   console.log(result.lines)
@@ -36,54 +31,68 @@ finally {
 }
 ```
 
-输入可使用本地文件路径、编码后的 `Buffer` / `Uint8Array`，或 RGB 像素数据。识别结果包含文字、置信度、原图坐标文本框和各阶段耗时。可用 `useDetection: false` 识别已裁切的单行文字。
-
-单独识别文本行时可使用 `TextRecognizer`：
+输入支持本地文件路径、HTTP(S) URL、`Buffer` / `Uint8Array`，以及指定像素格式的原始图像数据。默认执行检测、方向分类和识别。结果含 `lines`、`boxes`、`txts`、`scores`、`elapseList`、阶段 `timings`，完整 OCR 结果还支持 `toJSON()`、`toMarkdown()` 和 `vis()`。
 
 ```ts
-import { TextRecognizer } from 'rapidocr-node'
-
-const recognizer = await TextRecognizer.create()
-
-try {
-  console.log(await recognizer.recognizeLine('./text-line.png'))
-}
-finally {
-  await recognizer.close()
-}
+const result = await ocr.recognize({
+  data: bgrPixels,
+  format: 'BGR24',
+  width,
+  height,
+  stride: width * 3,
+})
 ```
 
-## 🧠 模型
+## 模型
 
-默认模型和配套字典来自 RapidOCR v3.10.0，首次使用时自动下载并校验 SHA-256：
+模型路由对应 RapidOCR v3.10.0 的 `default_models.yaml`，覆盖 PP-OCRv4、PP-OCRv5 和 PP-OCRv6 中上游登记的 ONNX 检测、分类及识别模型。默认使用 PP-OCRv6 small 中文检测和识别模型，以及 PP-OCRv4 mobile 方向分类模型。可用语言通过 `listSupportedLanguages(stage, version, modelType?)` 查询。
 
-- `PP-OCRv6_det_small.onnx`：文本检测
-- `PP-OCRv6_rec_small.onnx` 与 `ppocrv6_dict.txt`：文本识别
-- `ch_ppocr_mobile_v2.0_cls_mobile.onnx`：可选的 180° 方向分类；设置 `useClassifier: true` 可自动下载并加载，或通过 `classifierModelPath` 指定本地文件
+识别字典会与所选识别模型一同下载。模型和字典的来源、许可说明及完整 SHA-256 清单见 [`MODEL-LICENSES.md`](./MODEL-LICENSES.md) 和源码模型注册表。
 
-默认缓存目录遵循 macOS、Windows 和 Linux 的用户缓存目录规则，也可通过 `modelDirectory` 或 `RAPIDOCR_MODEL_DIR` 指定。设置 `autoDownloadModels: false` 可禁止自动下载；此时须传入所需的模型路径。
-
-需要提前下载全部默认模型时，可调用：
+## API 和 CLI
 
 ```ts
-import { downloadModels, RapidOCR } from 'rapidocr-node'
+import { downloadModels, listSupportedLanguages, RapidOCR } from 'rapidocr-node'
 
-const models = await downloadModels({ modelDirectory: './models' })
-const ocr = await RapidOCR.create({ ...models })
+const paths = await downloadModels()
+console.log(paths)
+console.log(listSupportedLanguages('rec', 'PP-OCRv5', 'mobile'))
+
+const ocr = await RapidOCR.create({
+  executionProviders: ['cpu'],
+  returnWordBoxes: true,
+})
 ```
 
-模型来源、SHA-256 和许可信息见[模型与测试资源说明](./MODEL-LICENSES.md)。
+命令行提供图片识别、配置生成、模型下载、语言查询和安装检查：
 
-## 🧪 开发与测试
+```sh
+rapidocr-node receipt.jpg
+rapidocr-node receipt.jpg --output markdown --vis
+rapidocr-node config --save-config rapidocr.yaml
+rapidocr-node download-models
+rapidocr-node check
+rapidocr-node --list-langs --task rec --ocr-version PP-OCRv5 --model-type mobile
+```
+
+CLI 参数和配置文件可通过以下命令查看：
+
+```sh
+rapidocr-node --help
+rapidocr-node config --help
+```
+
+## 开发和验证
 
 ```sh
 pnpm install
-pnpm lint && pnpm knip && pnpm test && pnpm typecheck && pnpm build
-pnpm test:e2e
+pnpm run ci
+pnpm run test:e2e
+pnpm run test:models
 ```
 
-端到端命令会自动下载并校验真实 ONNX 模型及测试图片，再将输出与 RapidOCR v3.10.0 参考结果比对。贡献和发布流程见[贡献指南](./CONTRIBUTING.md)。
+`test:e2e` 对照 RapidOCR v3.10.0 固定参考验证完整流程。`test:models` 使用真实图片验证上游登记的 42 个 ONNX 阶段模型路由及 30 个识别路由的整页结果；可选执行提供程序需在匹配的系统和硬件上单独验证。覆盖范围和待完成事项见 [`ROADMAP.md`](./ROADMAP.md)。
 
-## 📜 许可证
+## 许可
 
-代码采用 Apache-2.0 许可证。RapidOCR 上游归属见 [NOTICE.md](./NOTICE.md)；模型、字典和测试图片的说明见 [MODEL-LICENSES.md](./MODEL-LICENSES.md)。
+本项目代码按 Apache-2.0 许可发布。RapidOCR 上游代码、模型、字典、字体和测试图片分别保留其上游许可与归属信息；详见 [`NOTICE.md`](./NOTICE.md) 和 [`MODEL-LICENSES.md`](./MODEL-LICENSES.md)。本项目不是 RapidOCR 官方发行版。

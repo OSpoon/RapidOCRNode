@@ -1,0 +1,40 @@
+{
+  "upstream": "RapidOCR v3.10.0",
+  "referenceRuntime": {
+    "engine": "ONNX Runtime CPU",
+    "opencv": "5.0.0",
+    "rapidocr": "3.10.0",
+    "onnxruntime": "1.30.0"
+  },
+  "models": {
+    "detection": "PP-OCRv6_det_small.onnx",
+    "classification": "ch_ppocr_mobile_v2.0_cls_mobile.onnx",
+    "recognition": "PP-OCRv6_rec_small.onnx"
+  },
+  "cases": [
+    {
+      "height": 29,
+      "texts": [],
+      "type": "empty",
+      "width": 29
+    },
+    {
+      "height": 2000,
+      "texts": [],
+      "type": "empty",
+      "width": 30
+    },
+    {
+      "height": 30,
+      "texts": [],
+      "type": "empty",
+      "width": 2000
+    },
+    {
+      "height": 2048,
+      "texts": [],
+      "type": "empty",
+      "width": 31
+    }
+  ]
+}

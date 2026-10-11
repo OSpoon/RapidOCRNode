@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { cropPerspective, rotate180 } from '../../src/crop.js'
+import { cropPerspective, rotate180 } from '../../src/image/crop.js'
 
 describe('cropPerspective', () => {
   it('preserves pixels for an axis-aligned box', async () => {
@@ -32,6 +32,19 @@ describe('cropPerspective', () => {
     ])
 
     expect(crop).toEqual({ data: Uint8Array.from([1, 1, 1, 3, 3, 3, 5, 5, 5, 7, 7, 7, 0, 0, 0, 2, 2, 2, 4, 4, 4, 6, 6, 6]), height: 2, width: 4 })
+  })
+
+  it('uses the maximum opposing edge lengths for integer-rounded detector boxes', async () => {
+    const image = { data: new Uint8Array(500 * 120 * 3), height: 120, width: 500 }
+    const crop = await cropPerspective(image, [
+      { x: 10, y: 10 },
+      { x: 389, y: 12 },
+      { x: 388, y: 102 },
+      { x: 10, y: 100 },
+    ])
+
+    expect(crop.width).toBe(379)
+    expect(crop.height).toBe(90)
   })
 })
 

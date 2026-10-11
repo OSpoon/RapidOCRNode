@@ -1,20 +1,28 @@
-# 开发路线
+# 路线图
 
-## 首次发布范围
+项目目标是用 Node.js 实现 RapidOCR v3.10.0 的模型路由、图像处理和 OCR 结果流程。推理后端集中为 ONNX Runtime，避免维护多套原生适配层；ONNX Runtime 自身提供的执行提供程序按平台和硬件逐步验证。
 
-- [x] Node.js 22+、TypeScript ESM 与 ONNX Runtime CPU。
-- [x] 默认模型首次使用时自动下载、校验并缓存；支持本地模型路径和关闭自动下载。
-- [x] 整页检测、文本行裁切、180° 方向分类及 CTC 识别。
-- [x] 文本行直接识别、原图坐标、置信度、调用耗时和会话释放。
-- [x] 固定 RapidOCR v3.10.0 模型、字典和测试资源，并校验 SHA-256。
-- [x] 以真实模型和上游输出回归两张页面图、低分辨率页面、空白图、放大图、倒置文本行及裁切文本行。
-- [x] 配置 npm Trusted Publishing 发布工作流，并确认 npm 包不包含模型和测试文件。
+## 已完成
 
-首次发布前需在 GitHub Actions 观察 Node.js 22/24 与 Linux、macOS、Windows 矩阵通过；首个 npm 包需由维护者手动发布以启用 Trusted Publishing。具体步骤见[贡献指南](./CONTRIBUTING.md#release)。
+- 推理代码、公开选项、CLI、依赖和 GitHub Actions 只保留 ONNX Runtime 路径。
+- 默认使用 ONNX Runtime CPU；支持通过 ONNX Runtime `executionProviders` 选项指定运行时已提供的执行提供程序，并在不可用时回退到 CPU。
+- 按上游 v3.10.0 路由表登记 PP-OCRv4、PP-OCRv5、PP-OCRv6 的 42 个 ONNX 阶段模型组合，模型和字典首次使用时按需下载并校验 SHA-256。
+- 建立真实图片回归：42 个阶段路由与固定 Python RapidOCR 参考对照，30 个识别路由对照整页识别结果；另有词框、逐字符框、竖排文本、图像边界和配置导入用例。
+- 包要求 Node.js 24 或更高版本；CI 配置 Ubuntu、macOS、Windows 上的 Node.js 24 和 26。
 
-## 后续方向
+## 本机验证记录
 
-- 按平台验证 GPU 等 ONNX Runtime 执行提供程序。
-- 根据用户需求评估更多语言模型、文字框细分、批量 API 与 PDF 输入。
+2026-10-11 在 macOS arm64、Node.js 24.15.0 上：`pnpm run ci` 全部通过（94 项单测）；`pnpm run test:e2e` 通过 132 项、跳过 3 项硬件用例；设置 `RAPIDOCR_TEST_COREML=1` 和 `RAPIDOCR_TEST_WEBGPU=1` 后，`pnpm run test:models` 通过 220 项，覆盖 ONNX Runtime CPU、CoreML 与 WebGPU。构建中的 publint 和 npm tarball 内容检查也通过。这些结果仅代表本机环境。
 
-实现和默认模型以 [RapidOCR](https://github.com/RapidAI/RapidOCR) 为上游参照。真实模型回归方式见[贡献指南](./CONTRIBUTING.md#local-setup)。
+## 尚需验证
+
+- 等待并检查 GitHub 托管 CI 的各操作系统与 Node.js 版本结果。
+- 在匹配设备上补充 ONNX Runtime CUDA 和 DirectML 提供程序实机验证；提供程序是否存在取决于相应 `onnxruntime-node` 构建。
+- 增加更多真实图像和边界输入，并逐项比对上游默认参数、错误行为、输出选项及语言路由。
+- 验证干净 consumer 安装、首次模型下载、离线运行、CLI 主要命令和正式 npm 发布流程。
+
+上游登记的路由全部有自动化样例，不表示所有模型已在所有设备、输入图像和执行提供程序上获得相同覆盖。达到完整上游流程兼容仍需完成以上验证并处理发现的差异。
+
+## 上游配置兼容
+
+配置生成器只输出 ONNX Runtime 配置。为便于导入上游 v3.10.0 默认 YAML，配置读取器接受其中未修改的其他引擎默认区块；非默认设置会报错。这只兼容默认配置文件格式，不提供 OpenVINO、MNN、Paddle、Torch 或独立 TensorRT 推理。

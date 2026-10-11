@@ -8,8 +8,11 @@ coverage
 dist
 lib-cov
 logs
-models/
+/models/
 *.onnx
 node_modules
 temp
 .eslintcache
+.mypy_cache/
+__pycache__/
+*.py[cod]

@@ -1,0 +1,111 @@
+{
+  "upstream": "RapidOCR v3.10.0",
+  "input": {
+    "file": "vertical-chinese.png",
+    "sha256": "af4707c7ba1c08ddc4781076fcbf680b7a848b4f6295551b87c1560a06c97441",
+    "font": "chinese_cht.ttf",
+    "fontSha256": "5ce814960d0cdea1dd647180636babc1cf6a0acf0a9a9019424f4689acedd9ea"
+  },
+  "language": "chinese",
+  "referenceRuntime": {
+    "engine": "ONNX Runtime CPU",
+    "opencv": "5.0.0",
+    "rapidocr": "3.10.0",
+    "onnxruntime": "1.30.0"
+  },
+  "models": {
+    "detection": "PP-OCRv6_det_small.onnx",
+    "classification": "ch_ppocr_mobile_v2.0_cls_mobile.onnx",
+    "recognition": "PP-OCRv6_rec_small.onnx"
+  },
+  "lines": [
+    {
+      "box": [
+        [
+          74.0,
+          32.0
+        ],
+        [
+          125.0,
+          32.0
+        ],
+        [
+          125.0,
+          555.0
+        ],
+        [
+          74.0,
+          555.0
+        ]
+      ],
+      "confidence": 0.99804,
+      "text": "節點版完整流程"
+    },
+    {
+      "box": [
+        [
+          192.0,
+          30.0
+        ],
+        [
+          248.0,
+          30.0
+        ],
+        [
+          248.0,
+          634.0
+        ],
+        [
+          192.0,
+          634.0
+        ]
+      ],
+      "confidence": 0.99947,
+      "text": "文字方向由上而下"
+    },
+    {
+      "box": [
+        [
+          313.0,
+          32.0
+        ],
+        [
+          367.0,
+          32.0
+        ],
+        [
+          367.0,
+          634.0
+        ],
+        [
+          313.0,
+          634.0
+        ]
+      ],
+      "confidence": 0.99393,
+      "text": "真實頁面識別驗證"
+    },
+    {
+      "box": [
+        [
+          433.0,
+          31.0
+        ],
+        [
+          485.0,
+          31.0
+        ],
+        [
+          486.0,
+          633.0
+        ],
+        [
+          435.0,
+          633.0
+        ]
+      ],
+      "confidence": 0.97477,
+      "text": "縱排中文模型測試"
+    }
+  ]
+}

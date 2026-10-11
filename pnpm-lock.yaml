@@ -159,7 +159,7 @@ snapshots:
 lockfileVersion: '9.0'
 
 settings:
-  autoInstallPeers: true
+  autoInstallPeers: false
   excludeLinksFromLockfile: false
 
 catalogs:
@@ -194,6 +194,9 @@ catalogs:
     typescript:
       specifier: ^6.0.3
       version: 6.0.3
+    unrun:
+      specifier: ^0.3.1
+      version: 0.3.1
   default:
     '@techstark/opencv-js':
       specifier: 5.0.0-release.1
@@ -201,15 +204,24 @@ catalogs:
     '@types/clipper-lib':
       specifier: 6.4.0
       version: 6.4.0
+    bidi-js:
+      specifier: 1.1.0
+      version: 1.1.0
     clipper-lib:
       specifier: 6.4.2
       version: 6.4.2
+    commander:
+      specifier: 14.0.3
+      version: 14.0.3
     onnxruntime-node:
       specifier: 1.30.0
       version: 1.30.0
     sharp:
       specifier: 0.35.5
       version: 0.35.5
+    yaml:
+      specifier: 2.9.1
+      version: 2.9.1
   testing:
     vitest:
       specifier: ^5.0.2
@@ -226,15 +238,24 @@ importers:
       '@techstark/opencv-js':
         specifier: 'catalog:'
         version: 5.0.0-release.1
+      bidi-js:
+        specifier: 'catalog:'
+        version: 1.1.0
       clipper-lib:
         specifier: 'catalog:'
         version: 6.4.2
+      commander:
+        specifier: 'catalog:'
+        version: 14.0.3
       onnxruntime-node:
         specifier: 'catalog:'
         version: 1.30.0
       sharp:
         specifier: 'catalog:'
         version: 0.35.5(@types/node@26.6.4)
+      yaml:
+        specifier: 'catalog:'
+        version: 2.9.1
     devDependencies:
       '@antfu/eslint-config':
         specifier: catalog:cli
@@ -268,10 +289,13 @@ importers:
         version: 2.14.0
       tsdown:
         specifier: catalog:cli
-        version: 0.23.0(oxc-resolver@11.24.2)(publint@0.3.25)(typescript@6.0.3)
+        version: 0.23.0(oxc-resolver@11.24.2)(publint@0.3.25)(typescript@6.0.3)(unrun@0.3.1(synckit@0.11.13))
       typescript:
         specifier: catalog:cli
         version: 6.0.3
+      unrun:
+        specifier: catalog:cli
+        version: 0.3.1(synckit@0.11.13)
       vitest:
         specifier: catalog:testing
         version: 5.0.3(@types/node@26.6.4)(vite@8.3.4(@types/node@26.6.4)(jiti@2.7.0)(yaml@2.9.1))
@@ -1365,6 +1389,9 @@ packages:
     engines: {node: '>=6.0.0'}
     hasBin: true
 
+  bidi-js@1.1.0:
+    resolution: {integrity: sha512-fX1Onk0tdVPC7obPWB5EbJ1z7NVhLq4m2xZLq2YXBkxzMXIGRpNMU88n0EPgWseKl12J7zXs7qrDxPK4sRs2fg==}
+
   boolbase@1.0.0:
     resolution: {integrity: sha512-JZOSA7Mo9sNGB8+UjSgzdLtokWAky1zbztM3WRLCbZ70/3cTANmQmOdR7y2g+J0e2WXywy1yS468tY+IruqEww==}
 
@@ -1423,6 +1450,10 @@ packages:
 
   clipper-lib@6.4.2:
     resolution: {integrity: sha512-knglhjQX5ihNj/XCIs6zCHrTemdvHY3LPZP9XB2nq2/3igyYMFueFXtfp84baJvEE+f8pO1ZS4UVeEgmLnAprQ==}
+
+  commander@14.0.3:
+    resolution: {integrity: sha512-H+y0Jo/T1RZ9qPP4Eh1pkcQcLRglraJaSLoyOtHxu6AapkjWVCy2Sit1QQ4x3Dng8qDlSsZEet7g5Pq06MvTgw==}
+    engines: {node: '>=20'}
 
   commander@8.3.0:
     resolution: {integrity: sha512-OkTL9umf+He2DZkUq8f8J9of7yL6RJKI24dVITBmNfZBmri9zYZQrKkuXiKhyfPSu8tUhnVBB1iKXevvnlR4Ww==}
@@ -2426,6 +2457,10 @@ packages:
     resolution: {integrity: sha512-EWV80YgFaVgFrjGCAsV7oybp4GOxbls5RzBg8OB0nKEVXsBJR1JlV8Di1JhCROg3MzTfe1RI8yitIm1eOs68iA==}
     hasBin: true
 
+  require-from-string@2.0.2:
+    resolution: {integrity: sha512-Xf0nWe6RseziFMu+Ap9biiUbmplq6S9/p+7w7YXP/JBHhrUDDUhwa+vANyubuqfZWTveU//DYVGsDG7RKL/vEw==}
+    engines: {node: '>=0.10.0'}
+
   reserved-identifiers@1.2.0:
     resolution: {integrity: sha512-yE7KUfFvaBFzGPs5H3Ops1RevfUEsDc5Iz65rOwWg4lE8HJSYtle77uul3+573457oHvBKuHYDl/xqUkKpEEdw==}
     engines: {node: '>=18'}
@@ -2659,6 +2694,16 @@ packages:
 
   unist-util-visit@5.1.0:
     resolution: {integrity: sha512-m+vIdyeCOpdr/QeQCu2EzxX/ohgS8KbnPDgFni4dQsfSCtpz8UqDyY5GjRru8PDKuYn7Fq19j1CQ+nJSsGKOzg==}
+
+  unrun@0.3.1:
+    resolution: {integrity: sha512-onIck/oNnCaytwths1ZVp1LK2Gq2hPoyFhiHebObuUXqR3S0uHuLLaBK8K6mRRgV7Ptip8AnNvaUsgzwWwBZuA==}
+    engines: {node: ^22.13.0 || >=24.0.0}
+    hasBin: true
+    peerDependencies:
+      synckit: ^0.11.11
+    peerDependenciesMeta:
+      synckit:
+        optional: true
 
   update-browserslist-db@1.3.4:
     resolution: {integrity: sha512-t8wonIOdQyOjtPd2VktlBu6QjTVTks6v8bSi7kd0r2Vll8TK1JYDZtRRdbmCHOAMphkZgrzK+L+vXK4pyZ8t4A==}
@@ -3665,6 +3710,10 @@ snapshots:
 
   baseline-browser-mapping@2.11.28: {}
 
+  bidi-js@1.1.0:
+    dependencies:
+      require-from-string: 2.0.2
+
   boolbase@1.0.0: {}
 
   brace-expansion@5.0.12:
@@ -3720,6 +3769,8 @@ snapshots:
   ci-info@4.4.0: {}
 
   clipper-lib@6.4.2: {}
+
+  commander@14.0.3: {}
 
   commander@8.3.0: {}
 
@@ -4949,6 +5000,8 @@ snapshots:
     dependencies:
       jsesc: 3.1.0
 
+  require-from-string@2.0.2: {}
+
   reserved-identifiers@1.2.0: {}
 
   resolve-pkg-maps@1.0.0: {}
@@ -5106,7 +5159,7 @@ snapshots:
     dependencies:
       typescript: 6.0.3
 
-  tsdown@0.23.0(oxc-resolver@11.24.2)(publint@0.3.25)(typescript@6.0.3):
+  tsdown@0.23.0(oxc-resolver@11.24.2)(publint@0.3.25)(typescript@6.0.3)(unrun@0.3.1(synckit@0.11.13)):
     dependencies:
       cac: 7.0.1
       defu: 6.1.7
@@ -5125,6 +5178,7 @@ snapshots:
     optionalDependencies:
       publint: 0.3.25
       typescript: 6.0.3
+      unrun: 0.3.1(synckit@0.11.13)
     transitivePeerDependencies:
       - '@typescript/native-preview'
       - '@volar/typescript'
@@ -5187,6 +5241,12 @@ snapshots:
       '@types/unist': 3.0.3
       unist-util-is: 6.0.1
       unist-util-visit-parents: 6.0.2
+
+  unrun@0.3.1(synckit@0.11.13):
+    dependencies:
+      rolldown: 1.2.13
+    optionalDependencies:
+      synckit: 0.11.13
 
   update-browserslist-db@1.3.4(browserslist@4.29.3):
     dependencies:

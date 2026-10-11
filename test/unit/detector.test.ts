@@ -1,6 +1,7 @@
-import type { DetectorBox } from '../../src/detector.js'
+import type { DetectorBox } from '../../src/pipeline/detection/detector.js'
 import { describe, expect, it } from 'vitest'
-import { extractBoxes, sortBoxesInReadingOrder } from '../../src/detector.js'
+import { extractBoxes, getDetectorResizeRatio, sortBoxesInReadingOrder } from '../../src/pipeline/detection/detector.js'
+import { mapDetectorCoordinate } from '../../src/pipeline/detection/postprocess.js'
 
 function box(textX: number, topY: number): DetectorBox {
   return {
@@ -32,6 +33,69 @@ describe('extractBoxes', () => {
   it('returns no boxes for empty or below-threshold probability maps', async () => {
     expect(await extractBoxes(new Float32Array(32 * 32), 32, 32, 32, 32)).toEqual([])
     expect(await extractBoxes(new Float32Array(32 * 32).fill(0.4), 32, 32, 32, 32)).toEqual([])
+  })
+
+  it('accepts the upstream DB thresholds and expansion controls', async () => {
+    const map = new Float32Array(32 * 32)
+    for (let y = 10; y < 18; y++) {
+      for (let x = 8; x < 24; x++) map[y * 32 + x] = 0.9
+    }
+
+    const defaults = await extractBoxes(map, 32, 32, 32, 32)
+    const withoutExpansion = await extractBoxes(map, 32, 32, 32, 32, { unclipRatio: 0 })
+    const closeRegions = new Float32Array(32 * 32)
+    for (let y = 10; y < 18; y++) {
+      for (let x = 5; x < 10; x++) closeRegions[y * 32 + x] = 0.9
+      for (let x = 11; x < 16; x++) closeRegions[y * 32 + x] = 0.9
+    }
+    const dilated = await extractBoxes(closeRegions, 32, 32, 32, 32)
+    const withoutDilation = await extractBoxes(closeRegions, 32, 32, 32, 32, { useDilation: false })
+
+    expect(await extractBoxes(map, 32, 32, 32, 32, { threshold: 0.95 })).toEqual([])
+    expect(await extractBoxes(map, 32, 32, 32, 32, { boxThreshold: 0.95 })).toEqual([])
+    expect(withoutExpansion[0]!.box[0]!.x).toBeGreaterThan(defaults[0]!.box[0]!.x)
+    expect(dilated).toHaveLength(1)
+    expect(withoutDilation).toHaveLength(2)
+  })
+
+  it('limits the number of contours to postprocess', async () => {
+    const map = new Float32Array(32 * 32)
+    for (let y = 8; y < 15; y++) {
+      for (let x = 3; x < 11; x++) map[y * 32 + x] = 0.9
+      for (let x = 20; x < 28; x++) map[y * 32 + x] = 0.9
+    }
+
+    expect(await extractBoxes(map, 32, 32, 32, 32)).toHaveLength(2)
+    expect(await extractBoxes(map, 32, 32, 32, 32, { maxCandidates: 1 })).toHaveLength(1)
+  })
+
+  it('rejects invalid postprocess settings', async () => {
+    const map = new Float32Array(32 * 32)
+
+    await expect(extractBoxes(map, 32, 32, 32, 32, { threshold: 1.1 })).rejects.toThrow(/threshold/)
+    await expect(extractBoxes(map, 32, 32, 32, 32, { unclipRatio: -1 })).rejects.toThrow(/unclipRatio/)
+    await expect(extractBoxes(map, 32, 32, 32, 32, { maxCandidates: 0 })).rejects.toThrow(/maxCandidates/)
+    await expect(extractBoxes(map, 32, 32, 32, 32, { scoreMode: 'unknown' as 'fast' }))
+      .rejects
+      .toThrow(/scoreMode/)
+  })
+
+  it('supports contour-based slow scoring alongside upstream fast rectangle scoring', async () => {
+    const map = new Float32Array(16 * 16)
+    for (let y = 4; y < 8; y++) {
+      for (let x = 4; x < 12; x++) map[y * 16 + x] = 0.9
+    }
+    for (let y = 8; y < 12; y++) {
+      for (let x = 4; x < 8; x++) map[y * 16 + x] = 0.9
+    }
+
+    const options = { boxThreshold: 0, threshold: 0.5, unclipRatio: 0, useDilation: false }
+    const fast = await extractBoxes(map, 16, 16, 16, 16, { ...options, scoreMode: 'fast' })
+    const slow = await extractBoxes(map, 16, 16, 16, 16, { ...options, scoreMode: 'slow' })
+
+    expect(fast).toHaveLength(1)
+    expect(slow).toHaveLength(1)
+    expect(slow[0]!.score).toBeGreaterThan(fast[0]!.score)
   })
 
   it('matches the upstream 2-by-2 dilation anchor on regular and clipped boxes', async () => {
@@ -76,5 +140,20 @@ describe('sortBoxesInReadingOrder', () => {
 
     expect(sortBoxesInReadingOrder(boxes, 10).map(item => item.box[0]))
       .toEqual([{ x: 19, y: 178 }, { x: 54, y: 169 }])
+  })
+})
+
+describe('getDetectorResizeRatio', () => {
+  it('matches min-side and max-side detector scaling', () => {
+    expect(getDetectorResizeRatio(400, 200, 736, 'min')).toBe(3.68)
+    expect(getDetectorResizeRatio(1600, 800, 736, 'max')).toBe(0.46)
+    expect(getDetectorResizeRatio(400, 200, 736, 'max')).toBe(1)
+  })
+})
+
+describe('mapDetectorCoordinate', () => {
+  it('matches upstream NumPy float32 scaling before ties-to-even rounding', () => {
+    expect(mapDetectorCoordinate(247, 736, 368)).toBe(123)
+    expect(mapDetectorCoordinate(248, 736, 368)).toBe(124)
   })
 })

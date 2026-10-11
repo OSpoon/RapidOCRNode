@@ -11,7 +11,9 @@
     "type": "git",
     "url": "git+https://github.com/OSpoon/RapidOCRNode.git"
   },
-  "bugs": "https://github.com/OSpoon/RapidOCRNode/issues",
+  "bugs": {
+    "url": "https://github.com/OSpoon/RapidOCRNode/issues"
+  },
   "keywords": [
     "ocr",
     "rapidocr",
@@ -22,9 +24,13 @@
   "sideEffects": false,
   "exports": {
     ".": "./dist/index.mjs",
+    "./cli": "./dist/cli.mjs",
     "./package.json": "./package.json"
   },
   "types": "./dist/index.d.mts",
+  "bin": {
+    "rapidocr-node": "./dist/cli.mjs"
+  },
   "files": [
     "LICENSE.md",
     "MODEL-LICENSES.md",
@@ -32,7 +38,7 @@
     "dist"
   ],
   "engines": {
-    "node": ">=22"
+    "node": ">=24"
   },
   "scripts": {
     "build": "tsdown",
@@ -43,15 +49,19 @@
     "release": "bumpp",
     "test": "vitest run --config vitest.config.ts",
     "test:e2e": "pnpm run build && vitest run --config vitest.e2e.config.ts",
+    "test:models": "pnpm run build && vitest run --config vitest.models.config.ts",
     "typecheck": "tsc --noEmit",
     "ci": "pnpm run lint && pnpm run knip && pnpm run test && pnpm run typecheck && pnpm run build",
     "prepare": "git config core.hooksPath .githooks && simple-git-hooks"
   },
   "dependencies": {
     "@techstark/opencv-js": "catalog:",
+    "bidi-js": "catalog:",
     "clipper-lib": "catalog:",
+    "commander": "catalog:",
     "onnxruntime-node": "catalog:",
-    "sharp": "catalog:"
+    "sharp": "catalog:",
+    "yaml": "catalog:"
   },
   "devDependencies": {
     "@antfu/eslint-config": "catalog:cli",
@@ -66,6 +76,7 @@
     "simple-git-hooks": "catalog:cli",
     "tsdown": "catalog:cli",
     "typescript": "catalog:cli",
+    "unrun": "catalog:cli",
     "vitest": "catalog:testing"
   },
   "simple-git-hooks": {

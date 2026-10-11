@@ -1,0 +1,230 @@
+{
+  "upstream": "RapidOCR v3.10.0",
+  "referenceRuntime": {
+    "python": "3.11.13",
+    "rapidocr": "3.10.0",
+    "onnxruntime": "1.30.0",
+    "opencv": "5.0.0",
+    "numpy": "2.4.6"
+  },
+  "pipeline": {
+    "detection": "PP-OCRv6 ch small",
+    "classification": "PP-OCRv4 ch mobile",
+    "recognition": "PP-OCRv6 small by supported language"
+  },
+  "languages": {
+    "en": {
+      "image": "en_rec.jpg",
+      "lines": [
+        {
+          "text": "To facilitate the shot type analysis in videos, we collect MovieShots, a large-scale",
+          "confidence": 0.98977,
+          "box": [
+            [
+              0.0,
+              4.0
+            ],
+            [
+              699.0,
+              4.0
+            ],
+            [
+              699.0,
+              30.0
+            ],
+            [
+              0.0,
+              30.0
+            ]
+          ]
+        }
+      ]
+    },
+    "japan": {
+      "image": "japan-sharp.png",
+      "lines": [
+        {
+          "text": "【素敵な四季を探す旅】",
+          "confidence": 0.9993,
+          "box": [
+            [
+              39.0,
+              24.0
+            ],
+            [
+              361.0,
+              24.0
+            ],
+            [
+              361.0,
+              58.0
+            ],
+            [
+              39.0,
+              58.0
+            ]
+          ]
+        },
+        {
+          "text": "春分",
+          "confidence": 0.99983,
+          "box": [
+            [
+              353.0,
+              19.0
+            ],
+            [
+              457.0,
+              20.0
+            ],
+            [
+              456.0,
+              63.0
+            ],
+            [
+              352.0,
+              61.0
+            ]
+          ]
+        },
+        {
+          "text": "農村の学校で、伝統演劇の特別クラス",
+          "confidence": 0.99987,
+          "box": [
+            [
+              21.0,
+              109.0
+            ],
+            [
+              576.0,
+              109.0
+            ],
+            [
+              576.0,
+              143.0
+            ],
+            [
+              21.0,
+              143.0
+            ]
+          ]
+        },
+        {
+          "text": "浙江省",
+          "confidence": 0.99989,
+          "box": [
+            [
+              588.0,
+              105.0
+            ],
+            [
+              696.0,
+              106.0
+            ],
+            [
+              695.0,
+              146.0
+            ],
+            [
+              587.0,
+              145.0
+            ]
+          ]
+        },
+        {
+          "text": "週間時事用語（政府間覚書、マイクロドラマ、脳型知能など)",
+          "confidence": 0.97942,
+          "box": [
+            [
+              20.0,
+              193.0
+            ],
+            [
+              898.0,
+              193.0
+            ],
+            [
+              898.0,
+              229.0
+            ],
+            [
+              20.0,
+              229.0
+            ]
+          ]
+        },
+        {
+          "text": "三星堆の文化財レプリカが大阪・関西万博で展示へ",
+          "confidence": 0.99919,
+          "box": [
+            [
+              19.0,
+              276.0
+            ],
+            [
+              758.0,
+              278.0
+            ],
+            [
+              758.0,
+              315.0
+            ],
+            [
+              19.0,
+              313.0
+            ]
+          ]
+        },
+        {
+          "text": "中国テイストのストリートダンスでダンスバトルを盛り上げる….",
+          "confidence": 0.9756,
+          "box": [
+            [
+              20.0,
+              363.0
+            ],
+            [
+              950.0,
+              362.0
+            ],
+            [
+              950.0,
+              398.0
+            ],
+            [
+              20.0,
+              399.0
+            ]
+          ]
+        }
+      ]
+    },
+    "la": {
+      "image": "latin.jpg",
+      "lines": [
+        {
+          "text": "Alphabetum in mundo hodie frequentissime adhibitum est alphabetum Latinum.",
+          "confidence": 0.99973,
+          "box": [
+            [
+              23.0,
+              30.0
+            ],
+            [
+              1646.0,
+              30.0
+            ],
+            [
+              1646.0,
+              88.0
+            ],
+            [
+              23.0,
+              88.0
+            ]
+          ]
+        }
+      ]
+    }
+  }
+}
