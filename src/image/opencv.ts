@@ -112,6 +112,33 @@ export async function resizeRgbImageOpenCv(image: DecodedRgbImage, width: number
   }
 }
 
+export async function getPerspectiveTransformMatrix(
+  sourcePoints: readonly Point[],
+  destinationPoints: readonly Point[],
+): Promise<Float64Array> {
+  if (sourcePoints.length !== 4 || destinationPoints.length !== 4) {
+    throw new RangeError('A perspective transform requires four source and destination points.')
+  }
+
+  const cv = await getOpenCv()
+  const source = cv.matFromArray(4, 1, cv.CV_32FC2, sourcePoints.flatMap(point => [point.x, point.y]))
+  const destination = cv.matFromArray(4, 1, cv.CV_32FC2, destinationPoints.flatMap(point => [point.x, point.y]))
+  let transform: OpenCvMat | undefined
+  try {
+    transform = cv.getPerspectiveTransform(source, destination)
+    const matrix = transform.data64F.slice()
+    if (matrix.length !== 9 || matrix.some(value => !Number.isFinite(value))) {
+      throw new RangeError('Cannot map word boxes through a degenerate detection quadrilateral.')
+    }
+    return matrix
+  }
+  finally {
+    transform?.delete()
+    destination.delete()
+    source.delete()
+  }
+}
+
 export async function warpPerspectiveRgbOpenCv(
   image: DecodedRgbImage,
   sourcePoints: readonly Point[],

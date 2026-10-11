@@ -1,15 +1,16 @@
 import type { RecognizedWord, TextBox, WordPosition } from '../../shared/types.js'
+import { getPerspectiveTransformMatrix } from '../../image/opencv.js'
 import { getCtcTokenConfidences } from './ctc.js'
 
 /** Maps CTC time-step positions back through the detector's perspective crop. */
-export function mapWordPositionsToBox(
+export async function mapWordPositionsToBox(
   detectionBox: TextBox,
   cropWidth: number,
   cropHeight: number,
   text: string,
   positions: readonly WordPosition[],
   rotated180 = false,
-): RecognizedWord[] {
+): Promise<RecognizedWord[]> {
   if (positions.length === 0 || cropWidth < 1 || cropHeight < 1)
     return []
 
@@ -81,7 +82,7 @@ export function mapWordPositionsToBox(
     }
   }
 
-  const transform = getRectToQuadTransform(rectWidth, rectHeight, detectionBox)
+  const transform = await getRectToQuadTransform(rectWidth, rectHeight, detectionBox)
   return cells.map((cell, index) => {
     const localBox = [
       { x: cell.left, y: 0 },
@@ -125,60 +126,23 @@ function containsHan(text: string): boolean {
   return /\p{Script=Han}/u.test(text)
 }
 
-type Homography = readonly [number, number, number, number, number, number, number, number, number]
+type Homography = ArrayLike<number>
 
-function getRectToQuadTransform(width: number, height: number, box: TextBox): Homography {
+function getRectToQuadTransform(width: number, height: number, box: TextBox): Promise<Float64Array> {
   const source = [
     { x: 0, y: 0 },
     { x: width, y: 0 },
     { x: width, y: height },
     { x: 0, y: height },
   ]
-  const system: number[][] = []
-  for (let index = 0; index < 4; index++) {
-    const from = source[index]!
-    const to = box[index]!
-    system.push([from.x, from.y, 1, 0, 0, 0, -to.x * from.x, -to.x * from.y, to.x])
-    system.push([0, 0, 0, from.x, from.y, 1, -to.y * from.x, -to.y * from.y, to.y])
-  }
-
-  const values = solveLinearSystem(system)
-  return [values[0]!, values[1]!, values[2]!, values[3]!, values[4]!, values[5]!, values[6]!, values[7]!, 1]
-}
-
-function solveLinearSystem(matrix: number[][]): number[] {
-  for (let column = 0; column < matrix.length; column++) {
-    let pivot = column
-    for (let row = column + 1; row < matrix.length; row++) {
-      if (Math.abs(matrix[row]![column]!) > Math.abs(matrix[pivot]![column]!))
-        pivot = row
-    }
-    const pivotValue = matrix[pivot]![column]!
-    if (Math.abs(pivotValue) < 1e-12) {
-      throw new RangeError('Cannot map word boxes through a degenerate detection quadrilateral.')
-    }
-
-    ;[matrix[column], matrix[pivot]] = [matrix[pivot]!, matrix[column]!]
-    for (let entry = column; entry <= matrix.length; entry++)
-      matrix[column]![entry] = matrix[column]![entry]! / pivotValue
-
-    for (let row = 0; row < matrix.length; row++) {
-      if (row === column) {
-        continue
-      }
-      const factor = matrix[row]![column]!
-      for (let entry = column; entry <= matrix.length; entry++)
-        matrix[row]![entry] = matrix[row]![entry]! - factor * matrix[column]![entry]!
-    }
-  }
-  return matrix.map(row => row.at(-1)!)
+  return getPerspectiveTransformMatrix(source, box)
 }
 
 function projectPoint(x: number, y: number, transform: Homography): { x: number, y: number } {
-  const denominator = transform[6] * x + transform[7] * y + transform[8]
+  const denominator = transform[6]! * x + transform[7]! * y + transform[8]!
   return {
-    x: (transform[0] * x + transform[1] * y + transform[2]) / denominator,
-    y: (transform[3] * x + transform[4] * y + transform[5]) / denominator,
+    x: (transform[0]! * x + transform[1]! * y + transform[2]!) / denominator,
+    y: (transform[3]! * x + transform[4]! * y + transform[5]!) / denominator,
   }
 }
 

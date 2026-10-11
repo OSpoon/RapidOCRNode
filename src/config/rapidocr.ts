@@ -2,6 +2,7 @@ import type { ExecutionProviderConfig, RapidOCROptions } from '../shared/types.j
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import { parse, stringify } from 'yaml'
+import { validateRapidOCRConfigShape } from './schema.js'
 
 const DEFAULT_CONFIG = {
   Global: {
@@ -375,130 +376,26 @@ function getClassifierLabelList(section: ConfigRecord): readonly [string, string
 }
 
 function validateConfig(config: ConfigRecord): void {
-  assertKeys(config, 'configuration', ['Global', 'EngineConfig', 'Det', 'Cls', 'Rec'])
+  validateRapidOCRConfigShape(config)
   const global = readSection(config, 'Global')
-  assertKeys(global, 'Global', [
-    'text_score',
-    'use_det',
-    'use_cls',
-    'use_rec',
-    'use_preprocess_img',
-    'min_side_len',
-    'max_side_len',
-    'use_vertical_padding',
-    'min_height',
-    'width_height_ratio',
-    'return_word_box',
-    'return_single_char_box',
-    'font_path',
-    'log_level',
-    'model_root_dir',
-  ])
   const logLevel = optionalString(global, 'log_level')
   if (logLevel !== undefined)
     normalizeLogLevel(logLevel)
 
   const engines = readSection(config, 'EngineConfig')
-  assertKeys(engines, 'EngineConfig', ['onnxruntime', ...Object.keys(INACTIVE_UPSTREAM_ENGINE_DEFAULTS)])
   for (const [backend, defaults] of Object.entries(INACTIVE_UPSTREAM_ENGINE_DEFAULTS)) {
     if (backend in engines && !areEqual(engines[backend], defaults))
       throw new TypeError(`EngineConfig.${backend} is not supported by RapidOCR Node.`)
   }
   const onnx = readSection(engines, 'onnxruntime')
-  assertKeys(onnx, 'EngineConfig.onnxruntime', [
-    'intra_op_num_threads',
-    'inter_op_num_threads',
-    'enable_cpu_mem_arena',
-    'cpu_ep_cfg',
-    'use_cuda',
-    'cuda_ep_cfg',
-    'use_dml',
-    'dml_ep_cfg',
-    'use_cann',
-    'cann_ep_cfg',
-    'use_coreml',
-    'coreml_ep_cfg',
-  ])
-  assertKeys(readSection(onnx, 'cpu_ep_cfg'), 'EngineConfig.onnxruntime.cpu_ep_cfg', ['arena_extend_strategy'])
-  assertKeys(readSection(onnx, 'cuda_ep_cfg'), 'EngineConfig.onnxruntime.cuda_ep_cfg', [
-    'device_id',
-    'arena_extend_strategy',
-    'cudnn_conv_algo_search',
-    'do_copy_in_default_stream',
-  ])
-  const dml = onnx.dml_ep_cfg
-  if (dml !== undefined && dml !== null) {
-    if (!isRecord(dml))
-      throw new TypeError('EngineConfig.onnxruntime.dml_ep_cfg must be a mapping or null.')
-    assertKeys(dml, 'EngineConfig.onnxruntime.dml_ep_cfg', ['device_id'])
-  }
-  assertKeys(readSection(onnx, 'cann_ep_cfg'), 'EngineConfig.onnxruntime.cann_ep_cfg', [
-    'device_id',
-    'arena_extend_strategy',
-    'npu_mem_limit',
-    'op_select_impl_mode',
-    'optypelist_for_implmode',
-    'enable_cann_graph',
-  ])
-  assertKeys(readSection(onnx, 'coreml_ep_cfg'), 'EngineConfig.onnxruntime.coreml_ep_cfg', [
-    'ModelFormat',
-    'MLComputeUnits',
-    'RequireStaticInputShapes',
-    'EnableOnSubgraphs',
-    'SpecializationStrategy',
-    'ProfileComputePlan',
-    'AllowLowPrecisionAccumulationOnGPU',
-    'ModelCacheDirectory',
-  ])
   if (optionalBoolean(onnx, 'use_cann')) {
     throw new TypeError('EngineConfig.onnxruntime.use_cann is not supported by RapidOCR Node; the ONNX Runtime Node binding does not expose CANN.')
   }
-  assertKnownStage(readSection(config, 'Det'), 'Det', [
-    'engine_type',
-    'lang_type',
-    'model_type',
-    'ocr_version',
-    'task_type',
-    'model_path',
-    'model_dir',
-    'limit_side_len',
-    'limit_type',
-    'std',
-    'mean',
-    'thresh',
-    'box_thresh',
-    'max_candidates',
-    'unclip_ratio',
-    'use_dilation',
-    'score_mode',
-  ], 'det')
+  assertKnownStage(readSection(config, 'Det'), 'Det', 'det')
   const classifier = readSection(config, 'Cls')
-  assertKnownStage(classifier, 'Cls', [
-    'engine_type',
-    'lang_type',
-    'model_type',
-    'ocr_version',
-    'task_type',
-    'model_path',
-    'model_dir',
-    'cls_image_shape',
-    'cls_batch_num',
-    'cls_thresh',
-    'label_list',
-  ], 'cls')
+  assertKnownStage(classifier, 'Cls', 'cls')
   getClassifierLabelList(classifier)
-  assertKnownStage(readSection(config, 'Rec'), 'Rec', [
-    'engine_type',
-    'lang_type',
-    'model_type',
-    'ocr_version',
-    'task_type',
-    'model_path',
-    'model_dir',
-    'rec_keys_path',
-    'rec_img_shape',
-    'rec_batch_num',
-  ], 'rec')
+  assertKnownStage(readSection(config, 'Rec'), 'Rec', 'rec')
   assertUnsupportedValue(onnx, 'cpu_ep_cfg', 'arena_extend_strategy', 'kSameAsRequested')
   assertUnsupportedValue(onnx, 'cuda_ep_cfg', 'arena_extend_strategy', 'kNextPowerOfTwo')
   assertUnsupportedValue(onnx, 'cuda_ep_cfg', 'cudnn_conv_algo_search', 'EXHAUSTIVE')
@@ -519,8 +416,7 @@ function validateConfig(config: ConfigRecord): void {
   })) assertUnsupportedValue(onnx, 'coreml_ep_cfg', key, defaultValue)
 }
 
-function assertKnownStage(section: ConfigRecord, name: string, keys: readonly string[], task: string): void {
-  assertKeys(section, name, keys)
+function assertKnownStage(section: ConfigRecord, name: string, task: string): void {
   const configuredTask = optionalString(section, 'task_type')
   if (configuredTask !== undefined && configuredTask !== task)
     throw new TypeError(`${name}.task_type must be ${task}.`)
@@ -552,13 +448,6 @@ function assertUnsupportedValue(parent: ConfigRecord, sectionKey: string, key: s
   const section = readSection(parent, sectionKey)
   if (key in section && JSON.stringify(section[key]) !== JSON.stringify(supportedDefault)) {
     throw new TypeError(`EngineConfig.onnxruntime.${sectionKey}.${key} is not supported by RapidOCR Node.`)
-  }
-}
-
-function assertKeys(section: ConfigRecord, name: string, allowed: readonly string[]): void {
-  for (const key of Object.keys(section)) {
-    if (!allowed.includes(key))
-      throw new TypeError(`${name}.${key} is not supported by RapidOCR Node.`)
   }
 }
 

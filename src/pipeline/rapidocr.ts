@@ -352,7 +352,7 @@ export class RapidOCR {
           const lineBox = mapBoxToSource(detectionResult.box, scaled.scaleX, scaled.scaleY, source.width, source.height, padded.top)
           const wordCrop = wordMappingCrops[index]
           const words = (returnWordBoxes || returnSingleCharBoxes) && wordCrop
-            ? mapWordPositionsToBox(
+            ? await mapWordPositionsToBox(
                 lineBox,
                 wordCrop.width,
                 wordCrop.height,

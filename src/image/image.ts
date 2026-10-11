@@ -45,48 +45,6 @@ function isHttpUrl(value: string): boolean {
   return /^https?:\/\//iu.test(value)
 }
 
-export async function resizeRgbImage(
-  image: DecodedRgbImage,
-  width: number,
-  height: number,
-): Promise<Buffer> {
-  if (!Number.isInteger(width) || width < 1 || !Number.isInteger(height) || height < 1) {
-    throw new RangeError('Resized image dimensions must be positive integers.')
-  }
-
-  const output = Buffer.alloc(width * height * 3)
-  const xCoordinates = Array.from({ length: width }, (_, x) => getInterpolationCoordinate(x, image.width, width))
-  const yCoordinates = Array.from({ length: height }, (_, y) => getInterpolationCoordinate(y, image.height, height))
-
-  for (let y = 0; y < height; y++) {
-    const yCoordinate = yCoordinates[y]!
-    for (let x = 0; x < width; x++) {
-      const xCoordinate = xCoordinates[x]!
-      const topLeft = (yCoordinate.low * image.width + xCoordinate.low) * 3
-      const topRight = (yCoordinate.low * image.width + xCoordinate.high) * 3
-      const bottomLeft = (yCoordinate.high * image.width + xCoordinate.low) * 3
-      const bottomRight = (yCoordinate.high * image.width + xCoordinate.high) * 3
-      const target = (y * width + x) * 3
-
-      for (let channel = 0; channel < 3; channel++) {
-        const top = interpolate(
-          image.data[topLeft + channel] ?? 0,
-          image.data[topRight + channel] ?? 0,
-          xCoordinate.weight,
-        )
-        const bottom = interpolate(
-          image.data[bottomLeft + channel] ?? 0,
-          image.data[bottomRight + channel] ?? 0,
-          xCoordinate.weight,
-        )
-        output[target + channel] = Math.round(interpolate(top, bottom, yCoordinate.weight))
-      }
-    }
-  }
-
-  return output
-}
-
 /** Adds the vertical letterbox padding used by RapidOCR before text detection. */
 export function addVerticalPadding(
   image: DecodedRgbImage,
@@ -106,21 +64,6 @@ export function addVerticalPadding(
   const data = new Uint8Array(image.width * height * 3)
   data.set(image.data, top * image.width * 3)
   return { image: { data, height, width: image.width }, top }
-}
-
-function getInterpolationCoordinate(index: number, sourceLength: number, targetLength: number): {
-  high: number
-  low: number
-  weight: number
-} {
-  const coordinate = (index + 0.5) * sourceLength / targetLength - 0.5
-  const low = Math.max(0, Math.floor(coordinate))
-  const weight = low >= sourceLength - 1 ? 0 : Math.max(0, coordinate - low)
-  return { high: Math.min(low + 1, sourceLength - 1), low, weight }
-}
-
-function interpolate(low: number, high: number, weight: number): number {
-  return low + (high - low) * weight
 }
 
 async function decodeEncodedImage(input: string | Uint8Array): Promise<DecodedRgbImage> {

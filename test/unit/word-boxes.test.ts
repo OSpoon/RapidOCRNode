@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { mapWordPositionsToBox } from '../../src/pipeline/recognition/word-boxes.js'
 
 describe('word box mapping', () => {
-  it('uses a perspective transform for word boxes inside skewed detector boxes', () => {
-    const words = mapWordPositionsToBox(
+  it('uses a perspective transform for word boxes inside skewed detector boxes', async () => {
+    const words = await mapWordPositionsToBox(
       [
         { x: 0, y: 0 },
         { x: 100, y: 0 },
@@ -31,8 +31,8 @@ describe('word box mapping', () => {
     expect(bottomLeft.y).toBeGreaterThanOrEqual(19)
   })
 
-  it('rotates positions back into a vertical detector quadrilateral', () => {
-    const words = mapWordPositionsToBox(
+  it('rotates positions back into a vertical detector quadrilateral', async () => {
+    const words = await mapWordPositionsToBox(
       [
         { x: 10, y: 0 },
         { x: 30, y: 0 },
@@ -53,8 +53,8 @@ describe('word box mapping', () => {
     expect(words.every(word => word.box.every(point => point.x >= 10 && point.x <= 30))).toBe(true)
   })
 
-  it('estimates Han character widths from neighboring CTC columns', () => {
-    const words = mapWordPositionsToBox(
+  it('estimates Han character widths from neighboring CTC columns', async () => {
+    const words = await mapWordPositionsToBox(
       [
         { x: 0, y: 0 },
         { x: 100, y: 0 },
