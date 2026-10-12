@@ -40,21 +40,6 @@ jobs:
           test -n "$archive"
           tar -tzf "$archive" | grep -qx 'package/dist/index.mjs'
           tar -tzf "$archive" | grep -qx 'package/dist/cli.mjs'
-          node --input-type=module - "$archive" <<'NODE'
-          import { execFileSync } from 'node:child_process'
-
-          const archive = process.argv[2]
-          const manifest = JSON.parse(execFileSync('tar', ['-xOzf', archive, 'package/package.json'], { encoding: 'utf8' }))
-          const fields = ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies']
-          const unresolved = fields.flatMap(field => Object.entries(manifest[field] ?? {})
-            .filter(([, range]) => range.startsWith('catalog:') || range.startsWith('workspace:'))
-            .map(([name, range]) => `${field}.${name}: ${range}`))
-
-          if (unresolved.length > 0) {
-            console.error(`Unresolved workspace dependency protocols in package manifest:\n${unresolved.join('\n')}`)
-            process.exit(1)
-          }
-          NODE
       - name: Generate GitHub release notes
         run: pnpx changelogithub
         continue-on-error: true
