@@ -1,4 +1,5 @@
 import type { RapidOCRResult } from '../../src/shared/types.js'
+import type { KnownRuntimeTextDifference } from '../helpers/known-runtime-differences.js'
 import { Buffer } from 'node:buffer'
 import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
@@ -9,6 +10,7 @@ import sharp from 'sharp'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { TEST_FIXTURE_ASSETS } from '../../model-assets.mjs'
 import { downloadVerifiedAsset } from '../../src/models/download.js'
+import { getKnownRecognitionFullPageTextDifferences } from '../helpers/known-runtime-differences.js'
 
 type PackageApi = typeof import('../../src/index.js')
 type RapidOCRInstance = Awaited<ReturnType<PackageApi['RapidOCR']['create']>>
@@ -53,21 +55,6 @@ interface UpstreamRecognitionFullPageReference {
   modelType: 'medium' | 'mobile' | 'server' | 'small' | 'tiny'
   version: 'PP-OCRv4' | 'PP-OCRv5' | 'PP-OCRv6'
 }
-
-interface KnownRuntimeTextDifference {
-  confidenceTolerance: number
-  index: number
-  nodeText: string
-  upstreamText: string
-}
-
-const knownRecognitionFullPageTextDifferences: Record<string, readonly KnownRuntimeTextDifference[]> = arch === 'arm64'
-  ? {}
-  : {
-      'chinese_cht_PP-OCRv3_rec_mobile': [
-        { confidenceTolerance: 0.06, index: 4, nodeText: '1o08', upstreamText: '1o108' },
-      ],
-    }
 
 const knownChineseVehiclePageTextDifferences: Record<string, readonly KnownRuntimeTextDifference[]> = arch === 'arm64'
   ? {}
@@ -631,7 +618,7 @@ describe('rapidocr with pinned upstream models', () => {
           result.lines,
           testCase.lines,
           0.03,
-          knownRecognitionFullPageTextDifferences[testCase.modelKey] ?? [],
+          getKnownRecognitionFullPageTextDifferences(testCase.modelKey, testCase.fixture),
         )
       }
       finally {

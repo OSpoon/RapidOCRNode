@@ -29,6 +29,9 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint && pnpm knip && pnpm test && pnpm typecheck && pnpm build
       - run: pnpm test:e2e
+      - name: Test x64 full-page model reference
+        if: matrix.os == 'ubuntu-24.04'
+        run: pnpm exec vitest run --config vitest.models.config.ts -t "ONNX Runtime CPU PP-OCRv4/chinese_cht_PP-OCRv3_rec_mobile"
       - run: pnpm test:models
         if: matrix.os == 'macos-15'
         env:

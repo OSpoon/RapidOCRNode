@@ -11,6 +11,7 @@ import { parse } from 'yaml'
 import { TEST_FIXTURE_ASSETS } from '../../model-assets.mjs'
 import { downloadVerifiedAsset } from '../../src/models/download.js'
 import { resolveModelRoute } from '../../src/models/registry.js'
+import { getKnownRecognitionFullPageTextDifferences } from '../helpers/known-runtime-differences.js'
 import { expectWordBoxesMatchReference } from './word-box-reference.js'
 
 interface UpstreamRoute {
@@ -210,6 +211,7 @@ describe('oNNX Runtime full-page recognition', () => {
         const reference = recognitionFullPageReferences.models[referenceKey]
         if (!reference)
           throw new Error(`Missing full-page reference for ${referenceKey}.`)
+        const knownTextDifferences = getKnownRecognitionFullPageTextDifferences(route.modelKey, reference.fixture)
         const ocr = await api.RapidOCR.create({
           classifierModel: { langType: 'ch', modelType: 'mobile', ocrVersion: 'PP-OCRv4' },
           detectionModel: { langType: 'ch', modelType: 'small', ocrVersion: 'PP-OCRv6' },
@@ -226,8 +228,16 @@ describe('oNNX Runtime full-page recognition', () => {
           expect(result.lines).toHaveLength(reference.lines.length)
           for (const [index, actual] of result.lines.entries()) {
             const expected = reference.lines[index]!
-            expect(actual.text, `line ${index}`).toBe(expected.text)
-            expect(Math.abs(actual.confidence - expected.confidence)).toBeLessThanOrEqual(provider.scoreTolerance)
+            const knownTextDifference = knownTextDifferences.find(difference => difference.index === index)
+            if (knownTextDifference) {
+              expect(expected.text, `upstream line ${index}`).toBe(knownTextDifference.upstreamText)
+              expect(actual.text, `Node line ${index}`).toBe(knownTextDifference.nodeText)
+            }
+            else {
+              expect(actual.text, `line ${index}`).toBe(expected.text)
+            }
+            expect(Math.abs(actual.confidence - expected.confidence))
+              .toBeLessThanOrEqual(knownTextDifference?.confidenceTolerance ?? provider.scoreTolerance)
             expect(actual.box).toHaveLength(expected.box.length)
             for (const [pointIndex, point] of actual.box.entries()) {
               expect(Math.abs(point.x - expected.box[pointIndex]![0]!)).toBeLessThanOrEqual(2)
