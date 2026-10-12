@@ -4,7 +4,7 @@
 
 [![CI](https://github.com/OSpoon/RapidOCRNode/actions/workflows/ci.yml/badge.svg)](https://github.com/OSpoon/RapidOCRNode/actions/workflows/ci.yml)
 [![npm](https://img.shields.io/npm/v/rapidocr-node)](https://www.npmjs.com/package/rapidocr-node)
-[![License](https://img.shields.io/github/license/OSpoon/RapidOCRNode)](./LICENSE.md)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)](./LICENSE.md)
 
 ## 安装
 
