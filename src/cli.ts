@@ -3,8 +3,8 @@ import type { ModelStage, OCRVersion } from './models/registry.js'
 import type { RapidOCROptions, RapidOCRResult } from './shared/types.js'
 import { basename, resolve } from 'node:path'
 import process from 'node:process'
-import { pathToFileURL } from 'node:url'
 import { Command, CommanderError, InvalidArgumentError, Option } from 'commander'
+import { isMainModule } from './cli/is-main.js'
 import { resolveRapidOCROptions, writeRapidOCRConfig } from './config/rapidocr.js'
 import { downloadModels } from './models/download.js'
 import { listSupportedLanguages } from './models/registry.js'
@@ -231,7 +231,7 @@ function firstText(result: RapidOCRResult): string {
   }
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+if (isMainModule(import.meta.url, process.argv[1])) {
   runCli(process.argv.slice(2)).catch((error: unknown) => {
     const message = error instanceof Error ? error.message : String(error)
     process.stderr.write(`rapidocr-node: ${message}\n`)

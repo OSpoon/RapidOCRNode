@@ -1,13 +1,30 @@
 import { Buffer } from 'node:buffer'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { runCli } from '../../src/cli.js'
+import { isMainModule } from '../../src/cli/is-main.js'
 import { RapidOCR } from '../../src/pipeline/rapidocr.js'
 
 describe('rapidocr node cli', () => {
   afterEach(() => vi.restoreAllMocks())
+
+  it('detects the CLI entrypoint through a package-manager symlink', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'rapidocr-node-cli-entry-'))
+    const entryPath = join(directory, 'cli.mjs')
+    const symlinkPath = join(directory, 'rapidocr-node')
+    try {
+      await writeFile(entryPath, '')
+      await symlink(entryPath, symlinkPath)
+      expect(isMainModule(pathToFileURL(await realpath(entryPath)).href, symlinkPath)).toBe(true)
+      expect(isMainModule(pathToFileURL(entryPath).href, undefined)).toBe(false)
+    }
+    finally {
+      await rm(directory, { force: true, recursive: true })
+    }
+  })
 
   it('generates a supported upstream-style configuration file', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'rapidocr-node-cli-'))
