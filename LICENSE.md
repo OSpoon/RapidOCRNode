@@ -1,10 +1,4 @@
 
-Copyright (c) 2021 RapidOCR Authors. All rights reserved.
-Copyright (c) 2026 OSpoon. All rights reserved.
-
-RapidOCR Node is licensed under the Apache License, Version 2.0. The full
-license text follows.
-
                                  Apache License
                            Version 2.0, January 2004
                         http://www.apache.org/licenses/
