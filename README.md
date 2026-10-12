@@ -43,6 +43,23 @@ const result = await ocr.recognize({
 })
 ```
 
+## 工作流程
+
+RapidOCR Node 从图片输入开始，依次完成文本检测、文本行识别并返回带位置的结果：
+
+```mermaid
+flowchart TD
+  A[Node.js 应用或 CLI] --> B[图片输入<br/>路径、URL、Buffer、像素数据]
+  B --> C[图像解码与预处理]
+  C --> D[文本检测<br/>定位文本框]
+  D --> E[文本行裁切与排序]
+  E --> F[方向分类<br/>可选，必要时旋转]
+  F --> G[文字识别<br/>CTC 解码与字典]
+  G --> H[返回 OCR 结果<br/>文本、分数、坐标]
+```
+
+检测、方向分类和识别使用 ONNX Runtime 推理，并在各阶段按需加载模型。未提供本地模型时，程序检查本机缓存；默认模型或识别字典缺失时自动下载，校验 SHA-256 后存入缓存。CPU 为默认执行提供程序，也可配置当前环境可用的执行提供程序。
+
 ## 模型
 
 模型路由对应 RapidOCR v3.10.0 的 `default_models.yaml`，覆盖 PP-OCRv4、PP-OCRv5 和 PP-OCRv6 中上游登记的 ONNX 检测、分类及识别模型。默认使用 PP-OCRv6 small 中文检测和识别模型，以及 PP-OCRv4 mobile 方向分类模型。可用语言通过 `listSupportedLanguages(stage, version, modelType?)` 查询。
