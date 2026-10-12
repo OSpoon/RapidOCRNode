@@ -51,6 +51,17 @@ describe('rapidocr node cli', () => {
     expect(help).not.toMatch(/--no-det.*default: true/u)
   })
 
+  it('documents the HTTP server lifecycle commands and validates server limits', async () => {
+    const write = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
+    await runCli(['serve', '--help'])
+    const help = write.mock.calls.map(([chunk]) => String(chunk)).join('')
+    expect(help).toContain('start')
+    expect(help).toContain('status')
+    expect(help).toContain('restart')
+    expect(help).toContain('stop')
+    await expect(runCli(['serve', 'run', '--port', '0'])).rejects.toThrow('Value must be a positive integer.')
+  })
+
   it('rejects unknown command-line options before touching models', async () => {
     await expect(runCli(['--unknown'])).rejects.toThrow('unknown option \'--unknown\'')
   })

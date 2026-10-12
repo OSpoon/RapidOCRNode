@@ -9,6 +9,14 @@ import { resolveRapidOCROptions, writeRapidOCRConfig } from './config/rapidocr.j
 import { downloadModels } from './models/download.js'
 import { listSupportedLanguages } from './models/registry.js'
 import { RapidOCR } from './pipeline/rapidocr.js'
+import {
+  defaultRuntimeDirectory,
+  queryRuntimeStatus,
+  restartServer,
+  runServer,
+  startServerProcess,
+  stopServer,
+} from './server/runtime.js'
 
 const SAMPLE_IMAGE_URL = 'https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.10.0/resources/test_files/ch_en_num.jpg'
 
@@ -181,7 +189,137 @@ function createCli(): Command {
     .description('Run OCR on a sample image to check the installation')
     .action((_options: CliOptions, command: Command) => runCommand('check', undefined, command.optsWithGlobals()))
 
+  const serve = cli.command('serve').description('Run the RapidOCR HTTP API service')
+  const serverOptions = (command: Command): Command => command
+    .option('--host <host>', 'HTTP bind address', '127.0.0.1')
+    .option('--port <port>', 'HTTP port', parsePort, 8000)
+    .option('--runtime-dir <path>', 'Runtime state and log directory', defaultRuntimeDirectory())
+    .option('--max-file-size <bytes>', 'Maximum uploaded image size', parsePositiveInteger, 10 * 1024 * 1024)
+    .option('--max-concurrency <count>', 'Maximum concurrent OCR requests', parsePositiveInteger, 1)
+
+  serverOptions(serve.command('run'))
+    .description('Run the HTTP API in the foreground')
+    .action(async (_options: CliOptions, command: Command) => {
+      const options = command.optsWithGlobals() as CliOptions
+      const restartArgs = makeServeArgs('start', options)
+      const envArgs = process.env.RAPIDOCR_SERVE_RESTART_ARGS
+      const parsedRestartArgs = envArgs ? parseRestartArgs(envArgs) : []
+      const savedRestartArgs = parsedRestartArgs.length > 0 ? parsedRestartArgs : restartArgs
+      await runServer({
+        host: stringOption(options.host) ?? '127.0.0.1',
+        port: numberOption(options.port, 8000),
+        maxFileSize: numberOption(options.maxFileSize, 10 * 1024 * 1024),
+        maxConcurrency: numberOption(options.maxConcurrency, 1),
+        runtimeDir: stringOption(options.runtimeDir) ?? defaultRuntimeDirectory(),
+        rapidOptions: await resolveRapidOCROptions(toRapidOptions(options)),
+        restartArgs: savedRestartArgs,
+      })
+    })
+
+  serverOptions(serve.command('start'))
+    .description('Start the HTTP API in the background')
+    .action(async (_options: CliOptions, command: Command) => {
+      const options = command.optsWithGlobals() as CliOptions
+      const entryPath = process.argv[1]
+      if (!entryPath)
+        throw new Error('Cannot start the OCR server because the CLI entrypoint is unavailable.')
+      const restartArgs = makeServeArgs('start', options)
+      const status = await startServerProcess(
+        entryPath,
+        makeServeArgs('run', options),
+        restartArgs,
+        stringOption(options.runtimeDir) ?? defaultRuntimeDirectory(),
+      )
+      process.stdout.write(`${JSON.stringify(status, null, 2)}\n`)
+    })
+
+  serve.command('status')
+    .description('Show the HTTP API service status')
+    .option('--runtime-dir <path>', 'Runtime state and log directory', defaultRuntimeDirectory())
+    .action(async (_options: CliOptions, command: Command) => {
+      const options = command.optsWithGlobals() as CliOptions
+      const status = await queryRuntimeStatus(stringOption(options.runtimeDir) ?? defaultRuntimeDirectory())
+      process.stdout.write(`${JSON.stringify(status, null, 2)}\n`)
+    })
+
+  serve.command('stop')
+    .description('Gracefully stop the HTTP API service')
+    .option('--runtime-dir <path>', 'Runtime state and log directory', defaultRuntimeDirectory())
+    .action(async (_options: CliOptions, command: Command) => {
+      const options = command.optsWithGlobals() as CliOptions
+      await stopServer(stringOption(options.runtimeDir) ?? defaultRuntimeDirectory())
+      process.stdout.write('RapidOCR API stopped.\n')
+    })
+
+  serve.command('restart')
+    .description('Restart the HTTP API with its previous configuration')
+    .option('--runtime-dir <path>', 'Runtime state and log directory', defaultRuntimeDirectory())
+    .action(async (_options: CliOptions, command: Command) => {
+      const options = command.optsWithGlobals() as CliOptions
+      const status = await restartServer(stringOption(options.runtimeDir) ?? defaultRuntimeDirectory())
+      process.stdout.write(`${JSON.stringify(status, null, 2)}\n`)
+    })
+
   return cli
+}
+
+function makeServeArgs(action: 'run' | 'start', options: CliOptions): string[] {
+  const args: string[] = []
+  const configPath = stringOption(options.config)
+  const modelDirectory = stringOption(options.modelDir)
+  if (configPath)
+    args.push('--config', configPath)
+  if (modelDirectory)
+    args.push('--model-dir', modelDirectory)
+  if (options.download === false)
+    args.push('--no-download')
+  const language = stringOption(options.lang) ?? stringOption(options.langType)
+  if (language)
+    args.push('--lang', language)
+  if (typeof options.textScore === 'number')
+    args.push('--text-score', String(options.textScore))
+  if (options.wordBoxes === true || options.returnWordBox === true)
+    args.push('--word-boxes')
+  const fontPath = stringOption(options.fontPath)
+  if (fontPath)
+    args.push('--font-path', fontPath)
+  args.push('serve', action)
+  args.push('--host', stringOption(options.host) ?? '127.0.0.1')
+  args.push('--port', String(numberOption(options.port, 8000)))
+  args.push('--runtime-dir', stringOption(options.runtimeDir) ?? defaultRuntimeDirectory())
+  args.push('--max-file-size', String(numberOption(options.maxFileSize, 10 * 1024 * 1024)))
+  args.push('--max-concurrency', String(numberOption(options.maxConcurrency, 1)))
+  return args
+}
+
+function parseRestartArgs(value: string): string[] {
+  try {
+    const parsed: unknown = JSON.parse(value)
+    if (Array.isArray(parsed) && parsed.every(argument => typeof argument === 'string'))
+      return parsed
+  }
+  catch {
+    // A malformed inherited value should not prevent foreground startup.
+  }
+  return []
+}
+
+function parsePositiveInteger(value: string): number {
+  const parsed = Number(value)
+  if (!Number.isSafeInteger(parsed) || parsed < 1)
+    throw new InvalidArgumentError('Value must be a positive integer.')
+  return parsed
+}
+
+function parsePort(value: string): number {
+  const parsed = parsePositiveInteger(value)
+  if (parsed > 65_535)
+    throw new InvalidArgumentError('Port must be between 1 and 65535.')
+  return parsed
+}
+
+function numberOption(value: unknown, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback
 }
 
 function toRapidOptions(options: CliOptions): RapidOCROptions {

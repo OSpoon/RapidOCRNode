@@ -159,6 +159,29 @@ export class RapidOCR {
     )
   }
 
+  /** Loads the models enabled by this instance without processing an image. */
+  async warmup(): Promise<void> {
+    this.assertOpen()
+    this.activeCalls++
+    try {
+      const results = await Promise.allSettled([
+        ...(this.useDetectionByDefault ? [this.getDetector()] : []),
+        ...(this.useClassifierByDefault ? [this.getClassifier()] : []),
+        ...(this.useRecognitionByDefault ? [this.getRecognizer()] : []),
+      ])
+      const failure = results.find(result => result.status === 'rejected')
+      if (failure?.status === 'rejected')
+        throw failure.reason
+    }
+    finally {
+      this.activeCalls--
+      if (this.activeCalls === 0 && this.state === 'closing') {
+        this.idleResolver?.()
+        this.idleResolver = undefined
+      }
+    }
+  }
+
   /** Persists upstream-compatible stage, output, and score settings for later calls. */
   updateParams(options: RapidOCRUpdateParams): void {
     this.assertOpen()

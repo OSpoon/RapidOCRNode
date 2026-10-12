@@ -25,6 +25,7 @@
   "exports": {
     ".": "./dist/index.mjs",
     "./cli": "./dist/cli.mjs",
+    "./server": "./dist/server.mjs",
     "./package.json": "./package.json"
   },
   "types": "./dist/index.d.mts",
@@ -50,15 +51,18 @@
     "test": "vitest run --config vitest.config.ts",
     "test:e2e": "pnpm run build && vitest run --config vitest.e2e.config.ts",
     "test:models": "pnpm run build && vitest run --config vitest.models.config.ts",
+    "start:server": "node ./dist/cli.mjs serve run",
     "typecheck": "tsc --noEmit",
     "ci": "pnpm run lint && pnpm run knip && pnpm run test && pnpm run typecheck && pnpm run build",
     "prepare": "git config core.hooksPath .githooks && simple-git-hooks"
   },
   "dependencies": {
+    "@fastify/multipart": "catalog:",
     "@techstark/opencv-js": "catalog:",
     "bidi-js": "catalog:",
     "clipper-lib": "catalog:",
     "commander": "catalog:",
+    "fastify": "catalog:",
     "onnxruntime-node": "catalog:",
     "p-retry": "catalog:",
     "sharp": "catalog:",

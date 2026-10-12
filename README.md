@@ -92,11 +92,35 @@ rapidocr-node check
 rapidocr-node --list-langs --task rec --ocr-version PP-OCRv5 --model-type mobile
 ```
 
+也可以用 CLI 管理 HTTP API 服务。`start` 会在后台启动，并等到模型预热、服务可用后返回；`run` 在前台运行。默认只监听本机 `127.0.0.1:8000`：
+
+```sh
+rapidocr-node serve start --port 8000
+rapidocr-node serve status
+rapidocr-node serve restart
+rapidocr-node serve stop
+
+# 前台运行，按 Ctrl-C 优雅停止
+rapidocr-node serve run --host 127.0.0.1 --port 8000
+```
+
+服务提供 `GET /health/live`、`GET /health/ready`、`GET /openapi.json` 和 `POST /v1/ocr`。OCR 接口接收 `multipart/form-data`，图片使用 `file` 字段；可选 `options` 字段是 JSON 字符串，支持 `box_threshold`、`unclip_ratio`、`text_score_threshold`、`return_word_boxes`、`return_single_char_boxes` 和 `include_image`。上传大小默认限制为 10 MiB，并发 OCR 默认限制为 1；可通过 `--max-file-size` 和 `--max-concurrency` 调整。
+
+```sh
+curl http://127.0.0.1:8000/health/ready
+curl -X POST http://127.0.0.1:8000/v1/ocr \
+  -F 'file=@receipt.jpg' \
+  -F 'options={"return_word_boxes":true,"include_image":false}'
+```
+
+JSON 响应保留 RapidOCR 字段名：`boxes`、`txts`、`scores`、`word_results`、`lang_rec`、`elapse_list` 和 `elapse`。若包含图像，`img.data` 是 base64 编码的 BGR 像素，另带 `encoding`、`format`、`width` 和 `height`。错误响应遵循 Problem Details JSON 格式。服务只接受上传图片，不接受客户端提供的本地路径或 URL。
+
 CLI 参数和配置文件可通过以下命令查看：
 
 ```sh
 rapidocr-node --help
 rapidocr-node config --help
+rapidocr-node serve --help
 ```
 
 ## 开发和验证

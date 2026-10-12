@@ -66,6 +66,7 @@ describe('rapidocr options', () => {
       useRecognition: false,
     })
     try {
+      await expect(ocr.warmup()).rejects.toThrow(/Missing model paths: detectionModelPath/)
       const input = { data: new Uint8Array(3), height: 1, width: 1 }
       await expect(ocr.recognize(input)).rejects.toThrow(/Missing model paths: detectionModelPath/)
     }
@@ -82,6 +83,7 @@ describe('rapidocr options', () => {
       useRecognition: false,
     })
     try {
+      await expect(ocr.warmup()).resolves.toBeUndefined()
       const result = await ocr.recognize({ data: new Uint8Array(3), height: 1, width: 1 })
       expect(result.type).toBe('empty')
     }
