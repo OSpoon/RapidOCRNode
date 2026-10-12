@@ -1,5 +1,6 @@
 export { createInferenceSession } from './backends/inference.js'
 export { resolveRapidOCROptions, writeRapidOCRConfig } from './config/rapidocr.js'
+export { LoadImageError } from './image/image.js'
 export { downloadModels } from './models/download.js'
 export type { DownloadedModelPaths, DownloadModelsOptions } from './models/download.js'
 export { listSupportedLanguages } from './models/registry.js'
@@ -15,12 +16,14 @@ export type {
   ExecutionProviderConfig,
   ImageInput,
   Point,
+  RapidOCRBox,
   RapidOCRCallOptions,
   RapidOCRClassificationResult,
   RapidOCRDetectionResult,
   RapidOCREmptyResult,
   RapidOCRExportMethods,
   RapidOCRFullResult,
+  RapidOCRImage,
   RapidOCRJsonLine,
   RapidOCRLogLevel,
   RapidOCROptions,
@@ -29,6 +32,8 @@ export type {
   RapidOCRResultBase,
   RapidOCRStageVisualization,
   RapidOCRUpdateParams,
+  RapidOCRWordInfo,
+  RapidOCRWordResult,
   RawPixelFormat,
   RawPixelImage,
   RawRgbImage,

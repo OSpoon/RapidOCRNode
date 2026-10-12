@@ -5,9 +5,17 @@
  */
 import type { ImageInput, RawPixelFormat, RawPixelImage, RawRgbImage } from '../shared/types.js'
 import { Buffer } from 'node:buffer'
+import { fileURLToPath } from 'node:url'
 import sharp from 'sharp'
 
 export type DecodedRgbImage = RawRgbImage
+
+export class LoadImageError extends Error {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options)
+    this.name = 'LoadImageError'
+  }
+}
 
 export function roundToEven(value: number): number {
   const lower = Math.floor(value)
@@ -20,25 +28,47 @@ export function roundToEven(value: number): number {
 }
 
 export async function decodeRgbImage(input: ImageInput): Promise<DecodedRgbImage> {
+  if (input instanceof URL) {
+    if (isHttpUrl(input.href))
+      return decodeRemoteImage(input.href)
+    if (input.protocol === 'file:')
+      return decodeEncodedImage(fileURLToPath(input), true)
+    throw new LoadImageError(`Unsupported image URL protocol: ${input.protocol}`)
+  }
+
   if (typeof input === 'string') {
     if (isHttpUrl(input))
       return decodeRemoteImage(input)
-    return decodeEncodedImage(input)
+    return decodeEncodedImage(input, true)
   }
 
   if (input instanceof Uint8Array) {
-    return decodeEncodedImage(input)
+    return decodeEncodedImage(input, false)
   }
 
-  return normalizeRawPixelImage(input)
+  if (input instanceof ArrayBuffer)
+    return decodeEncodedImage(new Uint8Array(input), false)
+
+  if (input instanceof Blob)
+    return decodeEncodedImage(new Uint8Array(await input.arrayBuffer()), false)
+
+  try {
+    return normalizeRawPixelImage(input)
+  }
+  catch (cause) {
+    if (cause instanceof LoadImageError)
+      throw cause
+    const message = cause instanceof Error ? cause.message : String(cause)
+    throw new LoadImageError(`Unable to load raw image input: ${message}`, { cause })
+  }
 }
 
 async function decodeRemoteImage(url: string): Promise<DecodedRgbImage> {
-  const response = await fetch(url, { signal: AbortSignal.timeout(30_000) })
+  const response = await fetch(url, { signal: AbortSignal.timeout(60_000) })
   if (!response.ok) {
     throw new Error(`Remote image request failed: HTTP ${response.status}${response.statusText ? ` ${response.statusText}` : ''}`)
   }
-  return decodeEncodedImage(Buffer.from(await response.arrayBuffer()))
+  return decodeEncodedImage(Buffer.from(await response.arrayBuffer()), true)
 }
 
 function isHttpUrl(value: string): boolean {
@@ -66,23 +96,27 @@ export function addVerticalPadding(
   return { image: { data, height, width: image.width }, top }
 }
 
-async function decodeEncodedImage(input: string | Uint8Array): Promise<DecodedRgbImage> {
+async function decodeEncodedImage(input: string | Uint8Array, applyExifOrientation: boolean): Promise<DecodedRgbImage> {
   try {
-    const { data, info } = await sharp(input, { failOn: 'error', ignoreIcc: true })
-      .rotate()
+    let image = sharp(input, { failOn: 'error', ignoreIcc: true })
+    if (applyExifOrientation)
+      image = image.rotate()
+    const { data, info } = await image
       .toColourspace('srgb')
       .ensureAlpha()
       .raw()
       .toBuffer({ resolveWithObject: true })
 
     if (info.channels !== 4) {
-      throw new Error(`Expected an RGBA image, received ${info.channels} channels.`)
+      throw new LoadImageError(`Expected an RGBA image, received ${info.channels} channels.`)
     }
 
     return { data: convertRgbaToRgb(data), height: info.height, width: info.width }
   }
   catch (cause) {
-    throw new Error('Unable to decode image input. Pass an image path, encoded bytes, or raw RGB pixels.', { cause })
+    if (cause instanceof LoadImageError)
+      throw cause
+    throw new LoadImageError('Unable to decode image input. Pass an image path, encoded bytes, or raw RGB pixels.', { cause })
   }
 }
 
@@ -141,8 +175,7 @@ function normalizeRawPixelImage(image: RawPixelImage | RawRgbImage): DecodedRgbI
     throw new RangeError(`Raw image buffer must contain at least ${requiredLength} bytes.`)
   }
 
-  const alphaIndex = channels === 4 || channels === 2 ? channels - 1 : -1
-  const background = channels === 4 ? chooseRawRgbaBackground(image, stride) : 255
+  const alphaIndex = channels === 2 ? channels - 1 : -1
   const rgb = new Uint8Array(image.width * image.height * 3)
   for (let y = 0; y < image.height; y++) {
     const sourceY = image.bottomUp ? image.height - y - 1 : y
@@ -170,10 +203,9 @@ function normalizeRawPixelImage(image: RawPixelImage | RawRgbImage): DecodedRgbI
       const red = image.data[sourceOffset + (isBgr ? 2 : 0)] ?? 0
       const green = image.data[sourceOffset + 1] ?? 0
       const blue = image.data[sourceOffset + (isBgr ? 0 : 2)] ?? 0
-      const alpha = channels === 4 ? (image.data[sourceOffset + alphaIndex] ?? 0) / 255 : 1
-      rgb[targetOffset] = Math.trunc(red * alpha + background * (1 - alpha))
-      rgb[targetOffset + 1] = Math.trunc(green * alpha + background * (1 - alpha))
-      rgb[targetOffset + 2] = Math.trunc(blue * alpha + background * (1 - alpha))
+      rgb[targetOffset] = red
+      rgb[targetOffset + 1] = green
+      rgb[targetOffset + 2] = blue
     }
   }
 
@@ -213,25 +245,4 @@ function channelsForFormat(format: RawPixelFormat): number {
     default:
       throw new TypeError(`Unsupported raw image format: ${String(format)}.`)
   }
-}
-
-function chooseRawRgbaBackground(image: RawPixelImage, stride: number): number {
-  const isBgr = image.format === 'BGRA' || image.format === 'BGRA32' || image.format === 'BGRX'
-  let luminance = 0
-  let visiblePixels = 0
-  for (let y = 0; y < image.height; y++) {
-    const sourceY = image.bottomUp ? image.height - y - 1 : y
-    for (let x = 0; x < image.width; x++) {
-      const offset = sourceY * stride + x * 4
-      const alpha = image.data[offset + 3] ?? 0
-      if (alpha === 0)
-        continue
-      const red = image.data[offset + (isBgr ? 2 : 0)] ?? 0
-      const green = image.data[offset + 1] ?? 0
-      const blue = image.data[offset + (isBgr ? 0 : 2)] ?? 0
-      luminance += 0.299 * red + 0.587 * green + 0.114 * blue
-      visiblePixels++
-    }
-  }
-  return visiblePixels === 0 || luminance / visiblePixels < 128 ? 255 : 0
 }

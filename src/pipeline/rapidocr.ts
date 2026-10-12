@@ -17,6 +17,7 @@ import { resolveModelRoute } from '../models/registry.js'
 import { createRapidOCRLogger } from '../shared/logger.js'
 import { TextClassifier } from './classification/classifier.js'
 import { TextDetector, validateDetectorPostprocessOptions } from './detection/detector.js'
+import { toRapidOCRBoxes, toRapidOCRImage, toRapidOCRWordInfo, toRapidOCRWordResults } from './output/compat.js'
 import { addEmptyExportMethods, addOcrExportMethods } from './output/export.js'
 import { addStageVisualization } from './output/metadata.js'
 import { renderDetectionStage, renderLineStage } from './output/visualization.js'
@@ -235,7 +236,7 @@ export class RapidOCR {
       const detections = detectionOutput ?? [{ box: fullImageBox(scaled.image.width, scaled.image.height), score: 1 }]
       const detection = detectionOutput?.elapse ?? 0
       if (detections.length === 0) {
-        return createEmptyResult(source, { classification: 0, detection, recognition: 0 })
+        return createEmptyResult()
       }
 
       let crops = useDetection
@@ -264,8 +265,9 @@ export class RapidOCR {
           return addStageVisualization(makeImageFieldsNonEnumerable({
             type: 'detection',
             ...timingFields(timings),
-            img: source,
-            boxes,
+            img: toRapidOCRImage(source),
+            boxes: toRapidOCRBoxes(boxes),
+            boxPoints: boxes,
             scores,
             lines: [],
           }), savePath => renderDetectionStage(source, boxes, scores, savePath))
@@ -274,10 +276,12 @@ export class RapidOCR {
           return addStageVisualization(makeImageFieldsNonEnumerable({
             type: 'classification',
             ...timingFields(timings),
-            img: source,
+            img: toRapidOCRImage(source),
             imgList: crops,
+            img_list: crops.map(toRapidOCRImage),
             lines: [],
             clsRes: classificationLabels,
+            cls_res: classificationLabels,
             results: classificationResults,
           }), savePath => renderLineStage(
             crops,
@@ -287,7 +291,7 @@ export class RapidOCR {
             savePath,
           ))
         }
-        return createEmptyResult(source, timings)
+        return createEmptyResult()
       }
 
       const recognizer = await this.getRecognizer()
@@ -327,12 +331,15 @@ export class RapidOCR {
         return addStageVisualization(makeImageFieldsNonEnumerable({
           type: 'recognition',
           ...timingFields({ classification, detection, recognition }),
-          img: source,
-          imgs: crops,
+          img: toRapidOCRImage(source),
+          imgs: crops.map(toRapidOCRImage),
+          imgsRgb: crops,
           lines: [],
           results,
           txts: results.map(result => result.text),
           scores: results.map(result => result.confidence),
+          word_results: results.map(result => toRapidOCRWordInfo(result.wordPositions)),
+          lang_rec: this.langRec,
         }), savePath => renderLineStage(
           crops,
           results.map(result => result.text),
@@ -373,18 +380,21 @@ export class RapidOCR {
 
       const timings = { classification, detection, recognition }
       if (lines.length === 0)
-        return createEmptyResult(source, timings)
+        return createEmptyResult()
 
       return addOcrExportMethods(
         {
           type: 'ocr',
           ...timingFields(timings),
-          img: source,
+          img: toRapidOCRImage(source),
           lines,
-          boxes: lines.map(line => line.box),
+          boxes: toRapidOCRBoxes(lines.map(line => line.box)),
+          boxPoints: lines.map(line => line.box),
           txts: lines.map(line => line.text),
           scores: lines.map(line => line.confidence),
           wordResults: lines.map(line => line.words ?? []),
+          word_results: toRapidOCRWordResults(lines),
+          lang_rec: this.langRec,
         },
         source,
         this.visualizationSettings,
@@ -428,6 +438,13 @@ export class RapidOCR {
     if (this.state !== 'open') {
       throw new TypeError(`RapidOCR is ${this.state} and cannot start another recognition call.`)
     }
+  }
+
+  private get langRec(): string {
+    const selection = this.options.recognitionModel
+    const version = selection?.ocrVersion ?? 'PP-OCRv6'
+    const modelType = selection?.modelType ?? (version === 'PP-OCRv6' ? 'small' : 'mobile')
+    return `${selection?.langType ?? 'ch'}_${modelType}`
   }
 
   private logExecutionProviderFallback(message: string): void {
@@ -603,30 +620,33 @@ function validateCallOptions(options: RapidOCRCallOptions): void {
 function timingFields(timings: { classification: number, detection: number, recognition: number }): {
   elapse: number
   elapseList: [number, number, number]
+  elapse_list: [number, number, number]
   timings: { classification: number, detection: number, recognition: number }
 } {
   const elapseList: [number, number, number] = [timings.detection, timings.classification, timings.recognition]
-  return { elapse: elapseList.reduce((total, value) => total + value, 0), elapseList, timings }
+  return { elapse: elapseList.reduce((total, value) => total + value, 0), elapseList, elapse_list: elapseList, timings }
 }
 
-function createEmptyResult(
-  source: DecodedRgbImage,
-  timings: { classification: number, detection: number, recognition: number },
-): RapidOCREmptyResult {
+function createEmptyResult(): RapidOCREmptyResult {
   return addEmptyExportMethods({
     type: 'empty' as const,
-    ...timingFields(timings),
-    img: source,
+    elapse: 0,
+    elapseList: [0, 0, 0] as [number, number, number],
+    elapse_list: [],
+    timings: { classification: 0, detection: 0, recognition: 0 },
+    img: null,
     lines: [] as [],
     boxes: null,
+    boxPoints: null,
     txts: null,
     scores: null,
     wordResults: [] as [],
+    word_results: [] as [],
   })
 }
 
 function makeImageFieldsNonEnumerable<T extends object>(result: T): T {
-  for (const key of ['img', 'imgList', 'imgs']) {
+  for (const key of ['img', 'imgList', 'img_list', 'imgs', 'imgsRgb']) {
     if (Object.hasOwn(result, key))
       Object.defineProperty(result, key, { enumerable: false })
   }

@@ -1,6 +1,10 @@
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import sharp from 'sharp'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { decodeRgbImage, roundToEven } from '../../src/image/image.js'
+import { decodeRgbImage, LoadImageError, roundToEven } from '../../src/image/image.js'
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -16,6 +20,39 @@ describe('decodeRgbImage', () => {
   it('accepts well-formed caller-provided RGB pixels', async () => {
     const image = { data: Uint8Array.of(10, 20, 30), height: 1, width: 1 }
     await expect(decodeRgbImage(image)).resolves.toBe(image)
+  })
+
+  it('matches upstream path, URL, and encoded-byte input cases', async () => {
+    const encoded = await sharp(Uint8Array.of(10, 20, 30, 40, 50, 60), {
+      raw: { channels: 3, height: 1, width: 2 },
+    }).png().toBuffer()
+    const directory = await mkdtemp(join(tmpdir(), 'rapidocr-input-'))
+    const imagePath = join(directory, 'sample.png')
+    const remoteUrl = 'https://images.example/sample.png'
+    const fetchMock = vi.fn(async () => new Response(encoded))
+    vi.stubGlobal('fetch', fetchMock)
+
+    try {
+      await writeFile(imagePath, encoded)
+      const expected = await decodeRgbImage(Uint8Array.from(encoded))
+      const inputs = [
+        imagePath,
+        pathToFileURL(imagePath),
+        Uint8Array.from(encoded),
+        Uint8Array.from(encoded).buffer,
+        new Blob([Uint8Array.from(encoded)]),
+        remoteUrl,
+        new URL(remoteUrl),
+      ] as const
+
+      for (const input of inputs) {
+        await expect(decodeRgbImage(input)).resolves.toEqual(expected)
+      }
+      expect(fetchMock).toHaveBeenCalledTimes(2)
+    }
+    finally {
+      await rm(directory, { recursive: true, force: true })
+    }
   })
 
   it('converts upstream-compatible grayscale and BGR pixel buffers to RGB', async () => {
@@ -39,17 +76,29 @@ describe('decodeRgbImage', () => {
     expect(image.data).toEqual(Uint8Array.of(4, 5, 6, 1, 2, 3))
   })
 
-  it('composites raw RGBA and gray-alpha pixels using contrasting backgrounds', async () => {
+  it('drops raw RGBA alpha and composites gray-alpha pixels using a contrasting background', async () => {
     const rgba = await decodeRgbImage({
       data: Uint8Array.of(255, 0, 0, 0, 0, 0, 0, 255),
       format: 'RGBA',
       height: 1,
       width: 2,
     })
-    expect(rgba.data).toEqual(Uint8Array.of(255, 255, 255, 0, 0, 0))
+    expect(rgba.data).toEqual(Uint8Array.of(255, 0, 0, 0, 0, 0))
 
     const grayAlpha = await decodeRgbImage({ data: Uint8Array.of(20, 128), format: 'GRAYA', height: 1, width: 1 })
     expect(grayAlpha.data).toEqual(Uint8Array.of(147, 147, 147))
+  })
+
+  it('decodes the monochrome PNG case used by upstream input tests', async () => {
+    const encoded = await sharp(Uint8Array.of(0, 255), {
+      raw: { channels: 1, height: 1, width: 2 },
+    }).png({ palette: true, colours: 2 }).toBuffer()
+
+    await expect(decodeRgbImage(encoded)).resolves.toMatchObject({
+      data: Uint8Array.of(0, 0, 0, 255, 255, 255),
+      height: 1,
+      width: 2,
+    })
   })
 
   it('downloads and decodes HTTP image URLs', async () => {
@@ -67,7 +116,7 @@ describe('decodeRgbImage', () => {
     expect(image).toEqual({ data: Uint8Array.of(10, 20, 30), height: 1, width: 1 })
   })
 
-  it('decodes JPEGs with EXIF orientation through Sharp', async () => {
+  it('matches upstream EXIF behavior for encoded bytes and file paths', async () => {
     const encoded = await sharp(Uint8Array.of(
       255,
       0,
@@ -96,7 +145,9 @@ describe('decodeRgbImage', () => {
       .removeAlpha()
       .raw()
       .toBuffer({ resolveWithObject: true })
-    const image = await decodeRgbImage(encoded)
+    const byteImage = await decodeRgbImage(encoded)
+    expect(byteImage).toEqual({ data: Uint8Array.from(decoded.data), height: decoded.info.height, width: decoded.info.width })
+
     const expected = new Uint8Array(decoded.info.width * decoded.info.height * 3)
     for (let y = 0; y < decoded.info.height; y++) {
       for (let x = 0; x < decoded.info.width; x++) {
@@ -110,7 +161,16 @@ describe('decodeRgbImage', () => {
       }
     }
 
-    expect(image).toEqual({ data: expected, height: decoded.info.width, width: decoded.info.height })
+    const directory = await mkdtemp(join(tmpdir(), 'rapidocr-exif-'))
+    const imagePath = join(directory, 'orientation.jpg')
+    try {
+      await writeFile(imagePath, encoded)
+      const pathImage = await decodeRgbImage(imagePath)
+      expect(pathImage).toEqual({ data: expected, height: decoded.info.width, width: decoded.info.height })
+    }
+    finally {
+      await rm(directory, { recursive: true, force: true })
+    }
   })
 
   it('reports failed remote image responses', async () => {
@@ -126,13 +186,25 @@ describe('decodeRgbImage', () => {
       .toThrow(/must contain 3 bytes/)
   })
 
-  it('composites fully transparent pixels against a contrasting background', async () => {
-    const png = await sharp(Uint8Array.of(20, 20, 20, 0, 0, 0, 0, 255), {
-      raw: { channels: 4, height: 1, width: 2 },
-    }).png().toBuffer()
-
+  it.each([
+    {
+      name: 'black text on transparent pixels',
+      input: Uint8Array.of(0, 0, 0, 0, 0, 0, 0, 255),
+      expected: Uint8Array.of(255, 255, 255, 0, 0, 0),
+    },
+    {
+      name: 'white text on transparent pixels',
+      input: Uint8Array.of(255, 255, 255, 0, 255, 255, 255, 255),
+      expected: Uint8Array.of(0, 0, 0, 255, 255, 255),
+    },
+  ])('matches upstream transparent-image contrast handling for $name', async ({ input, expected }) => {
+    const png = await sharp(input, { raw: { channels: 4, height: 1, width: 2 } }).png().toBuffer()
     const image = await decodeRgbImage(png)
-    expect(image.data).toEqual(Uint8Array.of(255, 255, 255, 0, 0, 0))
+    expect(image.data).toEqual(expected)
+  })
+
+  it('raises the exported upstream-compatible error for a missing image input', async () => {
+    await expect(decodeRgbImage(null as never)).rejects.toBeInstanceOf(LoadImageError)
   })
 
   it('wraps malformed encoded image errors with an input hint', async () => {

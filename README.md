@@ -31,7 +31,7 @@ finally {
 }
 ```
 
-输入支持本地文件路径、HTTP(S) URL、`Buffer` / `Uint8Array`，以及指定像素格式的原始图像数据。默认执行检测、方向分类和识别。结果含 `lines`、`boxes`、`txts`、`scores`、`elapseList`、阶段 `timings`，完整 OCR 结果还支持 `toJSON()`、`toMarkdown()` 和 `vis()`。
+输入支持本地路径、HTTP(S) URL、`URL`、`Buffer` / `Uint8Array`、`ArrayBuffer`、`Blob`，以及带尺寸和像素格式的原始图像数据。默认执行检测、方向分类和识别。完整结果保留上游字段 `img`、`boxes`、`txts`、`scores`、`word_results`、`elapse_list` 和 `elapse`；`boxes` 是 `[N][4][2]` 坐标数组，`img` 是带 `width`、`height`、`format: 'BGR'` 的像素对象。Node 便利字段 `lines`、`boxPoints`、`wordResults`、`elapseList` 和 `timings` 也可用。`to_json()`、`to_markdown()` 和 `vis()` 使用上游方法名；`toJSON()`、`toMarkdown()` 与 `visBuffer()` 是 Node 风格扩展。
 
 ```ts
 const result = await ocr.recognize({

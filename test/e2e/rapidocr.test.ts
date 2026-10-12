@@ -859,10 +859,13 @@ describe('rapidocr with pinned upstream models', () => {
     expectLinesMatchReference(result.lines, expected.lines)
     expect(result.img.width).toBeGreaterThan(0)
     expect(result.img.height).toBeGreaterThan(0)
-    expect(result.boxes).toEqual(result.lines.map(line => line.box))
+    expect(result.boxes).toEqual(result.lines.map(line => line.box.map(point => [point.x, point.y])))
+    expect(result.boxPoints).toEqual(result.lines.map(line => line.box))
     expect(result.txts).toEqual(result.lines.map(line => line.text))
     expect(result.scores).toEqual(result.lines.map(line => line.confidence))
     expect(result.wordResults).toEqual(result.lines.map(line => line.words ?? []))
+    expect(result.elapse_list).toEqual(result.elapseList)
+    expect(result.word_results).toHaveLength(result.lines.length)
     expect(result.elapseList).toHaveLength(3)
     expect(result.elapse).toBeCloseTo(result.elapseList.reduce((sum, value) => sum + value, 0), 8)
     expect(result.toJSON()).toHaveLength(expected.lines.length)
@@ -874,12 +877,14 @@ describe('rapidocr with pinned upstream models', () => {
     expect(result.toMarkdown()).toContain(expected.lines[0]!.text)
     const renderedPath = resolve(modelsDirectory, 'rapidocr-result.png')
     const rendered = await result.vis(renderedPath)
-    expect(rendered).toBeInstanceOf(Buffer)
-    const renderedMetadata = await sharp(rendered!).metadata()
+    expect(rendered?.format).toBe('BGR')
+    const renderedMetadata = await sharp(Buffer.from(rendered!.data), {
+      raw: { width: rendered!.width, height: rendered!.height, channels: 3 },
+    }).metadata()
     const sourceMetadata = await sharp(samplePath).metadata()
     expect(renderedMetadata.width).toBe(sourceMetadata.width! * 2)
     expect(renderedMetadata.height).toBe(sourceMetadata.height)
-    expect(await readFile(renderedPath)).toEqual(rendered)
+    expect(await readFile(renderedPath)).toEqual(await result.visBuffer(renderedPath))
     expectTimings(result)
     expect(result.timings.classification).toBeGreaterThan(0)
   })
@@ -1085,7 +1090,9 @@ describe('rapidocr with pinned upstream models', () => {
     expect(detection.elapseList[0]).toBe(detection.timings.detection)
     expect(detection.timings.recognition).toBe(0)
     const detectionVisualization = await detection.vis()
-    expect((await sharp(detectionVisualization!).metadata()).width).toBe(detection.img.width)
+    expect((await sharp(Buffer.from(detectionVisualization!.data), {
+      raw: { width: detectionVisualization!.width, height: detectionVisualization!.height, channels: 3 },
+    }).metadata()).width).toBe(detection.img.width)
 
     const classification = await ocr!.recognize(resolve(modelsDirectory, 'text_cls.jpg'), {
       useDetection: false,
@@ -1100,8 +1107,12 @@ describe('rapidocr with pinned upstream models', () => {
     expect(classification.imgList).toHaveLength(1)
     expect(classification.img.width).toBeGreaterThan(0)
     expect(Object.keys(classification)).not.toContain('imgList')
+    expect(classification.cls_res).toEqual(classification.clsRes)
+    expect(classification.img_list).toHaveLength(1)
     const classificationVisualization = await classification.vis()
-    expect((await sharp(classificationVisualization!).metadata()).width).toBe(classification.img.width * 2)
+    expect((await sharp(Buffer.from(classificationVisualization!.data), {
+      raw: { width: classificationVisualization!.width, height: classificationVisualization!.height, channels: 3 },
+    }).metadata()).width).toBe(classification.img.width * 2)
   })
 
   it('matches the upstream low-resolution regression after ties-to-even detector resizing', async () => {
@@ -1168,7 +1179,9 @@ describe('rapidocr with pinned upstream models', () => {
     expect(result.timings.detection).toBe(0)
     expect(result.timings.classification).toBeGreaterThan(0)
     const recognitionVisualization = await result.vis()
-    expect((await sharp(recognitionVisualization!).metadata()).width).toBe(result.imgs[0]!.width * 2)
+    expect((await sharp(Buffer.from(recognitionVisualization!.data), {
+      raw: { width: recognitionVisualization!.width, height: recognitionVisualization!.height, channels: 3 },
+    }).metadata()).width).toBe(result.imgs[0]!.width * 2)
   })
 
   it('recognizes an already-cropped line with the real PP-OCRv6 model', async () => {
@@ -1195,12 +1208,12 @@ describe('rapidocr with pinned upstream models', () => {
     expect(detections).toHaveLength(expected.lines.length)
     expect(detections[0]!.score).toBeGreaterThan(0.5)
     expect(detections.img.width).toBeGreaterThan(0)
-    expect(detections.boxes).toEqual(detections.map(detection => detection.box))
+    expect(detections.boxes).toEqual(detections.map(detection => detection.box.map(point => [point.x, point.y])))
     expect(detections.scores).toEqual(detections.map(detection => detection.score))
     expect(detections.elapse).toBeGreaterThan(0)
     expect(detections.elapse).toBeLessThan(60)
     expect(Object.keys(detections)).not.toContain('img')
-    expect(await detections.vis()).toBeInstanceOf(Buffer)
+    expect((await detections.vis())?.format).toBe('BGR')
 
     const orientations = await classifier!.classifyLines([resolve(modelsDirectory, 'text_cls.jpg')])
     expect(orientations).toEqual([
@@ -1225,7 +1238,7 @@ describe('rapidocr with pinned upstream models', () => {
     expect(result.elapse).toBeGreaterThan(0)
     expect(result.elapse).toBeLessThan(60)
     expect(Object.keys(result)).not.toContain('imgs')
-    expect(await result.vis()).toBeInstanceOf(Buffer)
+    expect((await result.vis())?.format).toBe('BGR')
   })
 
   it('runs the DB slow contour-scoring mode against the real PP-OCRv6 detector', async () => {

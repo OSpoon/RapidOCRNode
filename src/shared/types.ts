@@ -7,14 +7,42 @@ export type ExecutionProviderConfig = NonNullable<ort.InferenceSession.SessionOp
 /** Upstream-compatible diagnostic threshold. Messages are written to stderr. */
 export type RapidOCRLogLevel = 'debug' | 'info' | 'warning' | 'error' | 'critical'
 
-/** A local path, HTTP(S) image URL, encoded bytes, or raw pixel data. */
-export type ImageInput = string | Uint8Array | RawRgbImage | RawPixelImage
+/** A local path, HTTP(S) URL, encoded bytes, Blob, or raw pixel data. */
+export type ImageInput = string | URL | Uint8Array | ArrayBuffer | Blob | RawRgbImage | RawPixelImage
 
 /** Raw, interleaved RGB pixels. `data` must contain exactly width * height * 3 bytes. */
 export interface RawRgbImage {
   data: Uint8Array
   height: number
   width: number
+}
+
+/** Upstream-compatible three-channel image data in OpenCV's BGR byte order. */
+export interface RapidOCRImage {
+  data: Uint8Array
+  format: 'BGR'
+  height: number
+  width: number
+}
+
+/** Four point coordinates in upstream `(N, 4, 2)` box order. */
+export type RapidOCRBox = readonly [
+  readonly [number, number],
+  readonly [number, number],
+  readonly [number, number],
+  readonly [number, number],
+]
+
+/** One upstream word result: text, confidence, and optional four point box. */
+export type RapidOCRWordResult = readonly [string, number, RapidOCRBox | null]
+
+/** Upstream CTC word metadata returned when recognition word boxes are requested. */
+export interface RapidOCRWordInfo {
+  words: string[][]
+  word_cols: number[][]
+  word_types: Array<'cn' | 'en&num'>
+  line_txt_len: number
+  confs: number[]
 }
 
 export type RawPixelFormat
@@ -123,11 +151,13 @@ export interface RecognizedLine extends RecognitionResult {
 }
 
 export interface RapidOCRResultBase {
-  /** Decoded source image in interleaved RGB byte order. */
-  img: RawRgbImage
+  /** Decoded source image in OpenCV's interleaved BGR order. */
+  img: RapidOCRImage | null
   lines: RecognizedLine[]
   /** Stage timings in upstream order (seconds): detection, classification, recognition. */
   elapseList: [number, number, number]
+  /** Upstream field name for the per-stage timing list. */
+  elapse_list: number[]
   /** Sum of the enabled stage timings in seconds, matching RapidOCR. */
   elapse: number
   /** Named stage timings in seconds, matching `elapseList`. */
@@ -147,56 +177,79 @@ export interface RapidOCRJsonLine {
 export interface RapidOCRExportMethods {
   /** Converts recognized lines to RapidOCR's `{ box, txt, score }` JSON shape. */
   toJSON: () => RapidOCRJsonLine[] | null
+  to_json: () => RapidOCRJsonLine[] | null
   /** Reconstructs a readable Markdown approximation from line box positions. */
   toMarkdown: () => string
-  /** Renders the RapidOCR side-by-side visualization as a PNG buffer, optionally saving it. */
-  vis: (savePath?: string) => Promise<Buffer | undefined>
+  to_markdown: () => string
+  /** Renders and returns the visualization as BGR pixels, optionally saving it. */
+  vis: (savePath?: string) => Promise<RapidOCRImage | undefined>
+  /** Node-specific PNG encoding helper for the visualization. */
+  visBuffer: (savePath?: string) => Promise<Buffer | undefined>
 }
 
 export interface RapidOCRStageVisualization {
-  /** Renders and optionally saves this stage's upstream-style visualization as a PNG buffer. */
-  vis: (savePath?: string) => Promise<Buffer | undefined>
+  /** Renders and returns this stage's visualization as BGR pixels. */
+  vis: (savePath?: string) => Promise<RapidOCRImage | undefined>
+  /** Node-specific PNG encoding helper for the visualization. */
+  visBuffer: (savePath?: string) => Promise<Buffer | undefined>
 }
 
 export interface RapidOCRFullResult extends RapidOCRResultBase, RapidOCRExportMethods {
   type: 'ocr'
-  boxes: TextBox[]
+  img: RapidOCRImage
+  boxes: RapidOCRBox[]
+  /** Node convenience representation with named point fields. */
+  boxPoints: TextBox[]
   txts: string[]
   scores: number[]
   wordResults: RecognizedWord[][]
+  word_results: Array<RapidOCRWordResult[] | null>
+  lang_rec: string
 }
 
 export interface RapidOCRDetectionResult extends RapidOCRResultBase, RapidOCRStageVisualization {
   type: 'detection'
+  img: RapidOCRImage
   lines: []
-  boxes: TextBox[]
+  boxes: RapidOCRBox[]
+  boxPoints: TextBox[]
   scores: number[]
 }
 
 export interface RapidOCRClassificationResult extends RapidOCRResultBase, RapidOCRStageVisualization {
   type: 'classification'
+  img: RapidOCRImage
   lines: []
   clsRes: Array<[string, number]>
+  cls_res: Array<[string, number]>
   results: Array<{ angle: 0 | 180, confidence: number }>
   imgList: RawRgbImage[]
+  img_list: RapidOCRImage[]
 }
 
 export interface RapidOCRRecognitionResult extends RapidOCRResultBase, RapidOCRStageVisualization {
   type: 'recognition'
+  img: RapidOCRImage
   lines: []
   results: RecognitionResult[]
-  imgs: RawRgbImage[]
+  imgs: RapidOCRImage[]
+  imgsRgb: RawRgbImage[]
   txts: string[]
   scores: number[]
+  word_results: Array<RapidOCRWordInfo | null>
+  lang_rec: string
 }
 
 export interface RapidOCREmptyResult extends RapidOCRResultBase, RapidOCRExportMethods {
   type: 'empty'
+  img: null
   lines: []
   boxes: null
+  boxPoints: null
   txts: null
   scores: null
   wordResults: []
+  word_results: []
 }
 
 export type RapidOCRResult

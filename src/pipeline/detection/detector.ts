@@ -3,13 +3,14 @@
  * Copyright (c) RapidOCR Authors; Node.js changes copyright (c) 2026 OSpoon.
  * Licensed under Apache-2.0. See LICENSE.md and NOTICE.md.
  */
-import type { ExecutionProviderConfig, ImageInput, RapidOCRStageVisualization, RawRgbImage, TextBox } from '../../shared/types.js'
+import type { ExecutionProviderConfig, ImageInput, RapidOCRBox, RapidOCRImage, RapidOCRStageVisualization, TextBox } from '../../shared/types.js'
 import type { DetectorBox, DetectorPostprocessOptions } from './postprocess.js'
 import { performance } from 'node:perf_hooks'
 import * as ort from 'onnxruntime-node'
 import { createInferenceSession } from '../../backends/inference.js'
 import { decodeRgbImage, roundToEven } from '../../image/image.js'
 import { resizeRgbImageOpenCv } from '../../image/opencv.js'
+import { toRapidOCRBoxes, toRapidOCRImage } from '../output/compat.js'
 import { addArrayMetadata, addStageVisualization } from '../output/metadata.js'
 import { renderDetectionStage } from '../output/visualization.js'
 import { DEFAULT_DETECTOR_SIDE, extractBoxes, getDetectorResizeRatio, validateDetectorPostprocessOptions } from './postprocess.js'
@@ -20,8 +21,9 @@ export type { DetectorBox, DetectorPostprocessOptions } from './postprocess.js'
 const DETECTOR_MEAN = [0.5, 0.5, 0.5] as const
 const DETECTOR_STD = [0.5, 0.5, 0.5] as const
 export interface TextDetectionOutput extends Array<DetectorBox>, RapidOCRStageVisualization {
-  img: RawRgbImage
-  boxes: TextBox[]
+  img: RapidOCRImage
+  boxes: RapidOCRBox[]
+  boxPoints: TextBox[]
   scores: number[]
   elapse: number
 }
@@ -174,9 +176,10 @@ export class TextDetector {
     const outputBoxes = detections.map(detection => detection.box)
     const scores = detections.map(detection => detection.score)
     const result = addArrayMetadata(detections, {
-      boxes: outputBoxes,
+      boxes: toRapidOCRBoxes(outputBoxes),
+      boxPoints: outputBoxes,
       elapse: (performance.now() - started) / 1000,
-      img: image,
+      img: toRapidOCRImage(image),
       scores,
     }) as TextDetectionOutput
     return addStageVisualization(result, savePath => renderDetectionStage(image, outputBoxes, scores, savePath))

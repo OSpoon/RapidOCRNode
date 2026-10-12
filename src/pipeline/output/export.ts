@@ -1,6 +1,7 @@
 import type { DecodedRgbImage } from '../../image/image.js'
 import type { RapidOCREmptyResult, RapidOCRExportMethods, RapidOCRFullResult, RapidOCRJsonLine, RecognizedLine, TextBox } from '../../shared/types.js'
 import type { VisualizationSettings } from './visualization.js'
+import { decodeVisualization } from './compat.js'
 import { renderResult } from './visualization.js'
 
 const NO_TEXT_MARKDOWN = '没有检测到任何文本。'
@@ -12,8 +13,19 @@ export function addOcrExportMethods<T extends Omit<RapidOCRFullResult, keyof Rap
 ): T & RapidOCRExportMethods {
   Object.defineProperties(result, {
     toJSON: { value: () => linesToJson(result.lines), enumerable: false },
+    to_json: { value: () => linesToJson(result.lines), enumerable: false },
     toMarkdown: { value: () => linesToMarkdown(result.lines), enumerable: false },
+    to_markdown: { value: () => linesToMarkdown(result.lines), enumerable: false },
     vis: {
+      value: async (savePath?: string) => {
+        if (!image)
+          return undefined
+        const rendered = await renderResult(result.lines, image, visualizationSettings, savePath)
+        return rendered ? decodeVisualization(rendered) : undefined
+      },
+      enumerable: false,
+    },
+    visBuffer: {
       value: (savePath?: string) => image ? renderResult(result.lines, image, visualizationSettings, savePath) : Promise.resolve(undefined),
       enumerable: false,
     },
@@ -26,8 +38,11 @@ export function addEmptyExportMethods<T extends Omit<RapidOCREmptyResult, keyof 
 ): T & RapidOCRExportMethods {
   Object.defineProperties(result, {
     toJSON: { value: () => null, enumerable: false },
+    to_json: { value: () => null, enumerable: false },
     toMarkdown: { value: () => NO_TEXT_MARKDOWN, enumerable: false },
+    to_markdown: { value: () => NO_TEXT_MARKDOWN, enumerable: false },
     vis: { value: async () => undefined, enumerable: false },
+    visBuffer: { value: async () => undefined, enumerable: false },
   } satisfies PropertyDescriptorMap)
   return result as T & RapidOCRExportMethods
 }

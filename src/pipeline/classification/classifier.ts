@@ -4,14 +4,16 @@
  * Licensed under Apache-2.0. See LICENSE.md and NOTICE.md.
  */
 import type { DecodedRgbImage } from '../../image/image.js'
-import type { ExecutionProviderConfig, ImageInput, RawRgbImage } from '../../shared/types.js'
+import type { ExecutionProviderConfig, ImageInput, RapidOCRImage, RapidOCRStageVisualization, RawRgbImage } from '../../shared/types.js'
 import { performance } from 'node:perf_hooks'
 import * as ort from 'onnxruntime-node'
 import { createInferenceSession } from '../../backends/inference.js'
 import { rotate180 } from '../../image/crop.js'
 import { decodeRgbImage } from '../../image/image.js'
 import { resizeRgbImageOpenCv } from '../../image/opencv.js'
-import { addArrayMetadata } from '../output/metadata.js'
+import { toRapidOCRImage } from '../output/compat.js'
+import { addArrayMetadata, addStageVisualization } from '../output/metadata.js'
+import { renderLineStage } from '../output/visualization.js'
 
 const IMAGE_HEIGHT = 48
 const IMAGE_WIDTH = 192
@@ -25,9 +27,11 @@ export interface TextOrientationResult {
   confidence: number
 }
 
-export interface TextClassificationOutput extends Array<TextOrientationResult> {
+export interface TextClassificationOutput extends Array<TextOrientationResult>, RapidOCRStageVisualization {
   imgList: RawRgbImage[]
+  img_list: RapidOCRImage[]
   clsRes: Array<[string, number]>
+  cls_res: Array<[string, number]>
   elapse: number
 }
 
@@ -201,11 +205,20 @@ export class TextClassifier {
     const images = await Promise.all(inputs.map(input => decodeRgbImage(input)))
     const started = performance.now()
     const { images: rotatedImages, results, clsRes } = await this.classifyAndRotateDetailed(images)
-    return addArrayMetadata(results, {
+    const output = addArrayMetadata(results, {
       clsRes,
+      cls_res: clsRes,
       elapse: (performance.now() - started) / 1000,
       imgList: rotatedImages,
+      img_list: rotatedImages.map(toRapidOCRImage),
     }) as TextClassificationOutput
+    return addStageVisualization(output, savePath => renderLineStage(
+      rotatedImages,
+      clsRes.map(([label]) => label),
+      clsRes.map(([, confidence]) => confidence),
+      {},
+      savePath,
+    ))
   }
 
   async classifyAndRotate(images: readonly DecodedRgbImage[]): Promise<DecodedRgbImage[]> {

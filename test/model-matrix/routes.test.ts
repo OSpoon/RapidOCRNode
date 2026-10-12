@@ -140,7 +140,7 @@ describe('oNNX Runtime model routes', () => {
         for (const sample of sampleInputs) {
           const result = await detector.detect(resolveFixture(sample.fixture))
           expect(result.img.width).toBeGreaterThan(0)
-          expectBoxesMatchReference(result.boxes, sample.boxes, `${referenceKey} ${sample.fixture}`)
+          expectBoxesMatchReference(result.boxes.map(box => box.map(([x, y]) => ({ x, y }))), sample.boxes, `${referenceKey} ${sample.fixture}`)
           expectScoresMatchReference(result.scores, sample.scores, provider.scoreTolerance)
         }
       }

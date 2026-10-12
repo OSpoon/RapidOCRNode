@@ -4,7 +4,7 @@ import type { DecodedRgbImage } from '../../image/image.js'
  * Copyright (c) RapidOCR Authors; Node.js changes copyright (c) 2026 OSpoon.
  * Licensed under Apache-2.0. See LICENSE.md and NOTICE.md.
  */
-import type { ImageInput, RapidOCRStageVisualization, RawRgbImage, RecognitionResult, TextRecognitionCallOptions, TextRecognizerOptions, WordPosition } from '../../shared/types.js'
+import type { ImageInput, RapidOCRImage, RapidOCRStageVisualization, RapidOCRWordInfo, RawRgbImage, RecognitionResult, TextRecognitionCallOptions, TextRecognizerOptions, WordPosition } from '../../shared/types.js'
 import type { VisualizationSettings } from '../output/visualization.js'
 import { readFile } from 'node:fs/promises'
 import { performance } from 'node:perf_hooks'
@@ -14,6 +14,7 @@ import { decodeRgbImage } from '../../image/image.js'
 import { resizeRgbImageOpenCv } from '../../image/opencv.js'
 import { resolveModelPaths, selectModelAssets } from '../../models/download.js'
 import { resolveModelRoute } from '../../models/registry.js'
+import { toRapidOCRImage, toRapidOCRWordInfo } from '../output/compat.js'
 import { addArrayMetadata, addStageVisualization } from '../output/metadata.js'
 import { renderLineStage } from '../output/visualization.js'
 import { decodeCtcOutput, readDictionary } from './ctc.js'
@@ -23,11 +24,20 @@ const IMAGE_HEIGHT = 48
 const IMAGE_WIDTH = 320
 const CHANNELS = 3
 
+function getLangRec(selection: TextRecognizerOptions['modelSelection']): string {
+  const version = selection?.ocrVersion ?? 'PP-OCRv6'
+  const modelType = selection?.modelType ?? (version === 'PP-OCRv6' ? 'small' : 'mobile')
+  return `${selection?.langType ?? 'ch'}_${modelType}`
+}
+
 export interface TextRecognitionOutput extends Array<RecognitionResult>, RapidOCRStageVisualization {
-  imgs: RawRgbImage[]
+  imgs: RapidOCRImage[]
+  imgsRgb: RawRgbImage[]
   txts: string[]
   scores: number[]
   wordResults: Array<WordPosition[] | undefined>
+  word_results: Array<RapidOCRWordInfo | null>
+  lang_rec: string
   elapse: number
 }
 
@@ -50,6 +60,7 @@ export class TextRecognizer {
     private readonly imageHeight: number,
     private readonly imageWidth: number,
     private readonly isArabic: boolean,
+    private readonly langRec: string,
     private readonly visualizationSettings: VisualizationSettings,
   ) {}
 
@@ -164,6 +175,7 @@ export class TextRecognizer {
         imageHeight,
         imageWidth,
         resolveModelRoute('rec', options.modelSelection).modelKey.startsWith('arabic_'),
+        getLangRec(options.modelSelection),
         {
           autoDownloadFonts: options.autoDownloadFonts,
           fontPath: options.fontPath,
@@ -197,10 +209,13 @@ export class TextRecognizer {
     if (inputs.length === 0) {
       const results = addArrayMetadata([] as RecognitionResult[], {
         elapse: 0,
-        imgs: [] as RawRgbImage[],
+        imgs: [] as RapidOCRImage[],
+        imgsRgb: [] as RawRgbImage[],
         scores: [] as number[],
         txts: [] as string[],
         wordResults: [] as Array<WordPosition[] | undefined>,
+        word_results: [] as Array<RapidOCRWordInfo | null>,
+        lang_rec: this.langRec,
       }) as TextRecognitionOutput
       return addStageVisualization(results, savePath => renderLineStage([], [], [], this.visualizationSettings, savePath))
     }
@@ -240,10 +255,13 @@ export class TextRecognizer {
       })
       const output = addArrayMetadata(recognizedResults, {
         elapse: (performance.now() - started) / 1000,
-        imgs: images,
+        imgs: images.map(toRapidOCRImage),
+        imgsRgb: images,
         scores: recognizedResults.map(result => result.confidence),
         txts: recognizedResults.map(result => result.text),
         wordResults: recognizedResults.map(result => result.wordPositions),
+        word_results: recognizedResults.map(result => toRapidOCRWordInfo(result.wordPositions)),
+        lang_rec: this.langRec,
       }) as TextRecognitionOutput
       return addStageVisualization(output, savePath => renderLineStage(
         images,
