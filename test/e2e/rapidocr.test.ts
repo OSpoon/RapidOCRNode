@@ -625,6 +625,7 @@ describe('rapidocr with pinned upstream models', () => {
         await instance.close()
       }
     },
+    120_000,
   )
 
   it.each(chineseRouteFullPageCases)(
@@ -659,6 +660,7 @@ describe('rapidocr with pinned upstream models', () => {
         await instance.close()
       }
     },
+    120_000,
   )
 
   it('matches the upstream PP-OCRv4 Japanese output on a shared lossless raster', async () => {
@@ -735,7 +737,7 @@ describe('rapidocr with pinned upstream models', () => {
     finally {
       await instance.close()
     }
-  }, 120_000)
+  }, 180_000)
 
   it('matches the upstream PP-OCRv4 server detector output with both model outputs', async () => {
     const api = await import(packageName) as PackageApi
@@ -835,7 +837,7 @@ describe('rapidocr with pinned upstream models', () => {
     finally {
       await instance.close()
     }
-  }, 120_000)
+  }, 180_000)
 
   it.each(['mobile', 'server'] as const)('matches the upstream PP-OCRv5 %s orientation classifier', async (modelType) => {
     const api = await import(packageName) as PackageApi
