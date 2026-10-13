@@ -195,6 +195,7 @@ function createCli(): Command {
     .option('--port <port>', 'HTTP port', parsePort, 8000)
     .option('--runtime-dir <path>', 'Runtime state and log directory', defaultRuntimeDirectory())
     .option('--max-file-size <bytes>', 'Maximum uploaded image size', parsePositiveInteger, 10 * 1024 * 1024)
+    .option('--max-image-pixels <pixels>', 'Maximum decoded image pixel count', parsePositiveInteger, 20_000_000)
     .option('--max-concurrency <count>', 'Maximum concurrent OCR requests', parsePositiveInteger, 1)
 
   serverOptions(serve.command('run'))
@@ -210,6 +211,7 @@ function createCli(): Command {
         port: numberOption(options.port, 8000),
         maxFileSize: numberOption(options.maxFileSize, 10 * 1024 * 1024),
         maxConcurrency: numberOption(options.maxConcurrency, 1),
+        maxImagePixels: numberOption(options.maxImagePixels, 20_000_000),
         runtimeDir: stringOption(options.runtimeDir) ?? defaultRuntimeDirectory(),
         rapidOptions: await resolveRapidOCROptions(toRapidOptions(options)),
         restartArgs: savedRestartArgs,
@@ -288,6 +290,7 @@ function makeServeArgs(action: 'run' | 'start', options: CliOptions): string[] {
   args.push('--port', String(numberOption(options.port, 8000)))
   args.push('--runtime-dir', stringOption(options.runtimeDir) ?? defaultRuntimeDirectory())
   args.push('--max-file-size', String(numberOption(options.maxFileSize, 10 * 1024 * 1024)))
+  args.push('--max-image-pixels', String(numberOption(options.maxImagePixels, 20_000_000)))
   args.push('--max-concurrency', String(numberOption(options.maxConcurrency, 1)))
   return args
 }

@@ -1,10 +1,15 @@
 import type { RapidOCRResult } from '../../src/shared/types.js'
 import { Buffer } from 'node:buffer'
-import { afterEach, describe, expect, it, vi } from 'vitest'
-import { LoadImageError } from '../../src/image/image.js'
+import sharp from 'sharp'
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { createRapidOCRServer } from '../../src/server/api.js'
 
 const openServers: Array<Awaited<ReturnType<typeof createRapidOCRServer>>> = []
+let sampleImage: Buffer
+
+beforeAll(async () => {
+  sampleImage = await sharp({ create: { width: 2, height: 2, channels: 3, background: '#ffffff' } }).png().toBuffer()
+})
 
 afterEach(async () => {
   await Promise.all(openServers.splice(0).map(server => server.close()))
@@ -29,7 +34,7 @@ describe('rapidOCR HTTP API', () => {
     const app = await createRapidOCRServer({ logger: false, ocr: { recognize } as never })
     openServers.push(app)
     const { headers, payload } = multipartImage({
-      file: Buffer.from([1, 2, 3, 4]),
+      file: sampleImage,
       options: JSON.stringify({ return_word_boxes: true, include_image: true }),
     })
 
@@ -58,7 +63,7 @@ describe('rapidOCR HTTP API', () => {
   it('preserves empty-result fields and stage timings', async () => {
     const app = await createRapidOCRServer({ logger: false, ocr: { recognize: vi.fn(async () => makeEmptyResult()) } as never })
     openServers.push(app)
-    const upload = multipartImage({ file: Buffer.from([1]) })
+    const upload = multipartImage({ file: sampleImage })
 
     const response = await app.inject({ method: 'POST', url: '/v1/ocr', headers: upload.headers, payload: upload.payload })
     expect(response.statusCode).toBe(200)
@@ -79,7 +84,7 @@ describe('rapidOCR HTTP API', () => {
     const app = await createRapidOCRServer({ logger: false, ocr: { recognize } as never })
     openServers.push(app)
 
-    const malformed = multipartImage({ file: Buffer.from([1]), options: '{bad' })
+    const malformed = multipartImage({ file: sampleImage, options: '{bad', optionsContentType: 'text/plain' })
     const invalidOptions = await app.inject({ method: 'POST', url: '/v1/ocr', headers: malformed.headers, payload: malformed.payload })
     expect(invalidOptions.statusCode).toBe(400)
     expect(invalidOptions.headers['content-type']).toContain('application/problem+json')
@@ -100,9 +105,7 @@ describe('rapidOCR HTTP API', () => {
   })
 
   it('rejects oversized uploads and maps image decoding failures to 422', async () => {
-    const recognize = vi.fn(async () => {
-      throw new LoadImageError('bad image')
-    })
+    const recognize = vi.fn(async () => makeResult())
     const app = await createRapidOCRServer({ logger: false, ocr: { recognize } as never, maxFileSize: 32 })
     openServers.push(app)
 
@@ -122,12 +125,12 @@ describe('rapidOCR HTTP API', () => {
     const app = await createRapidOCRServer({ logger: false, ocr: { recognize } as never })
     openServers.push(app)
 
-    const invalid = multipartImage({ file: Buffer.from([1]), options: JSON.stringify({ image_url: 'https://example.invalid' }) })
+    const invalid = multipartImage({ file: sampleImage, options: JSON.stringify({ image_url: 'https://example.invalid' }) })
     const invalidResponse = await app.inject({ method: 'POST', url: '/v1/ocr', headers: invalid.headers, payload: invalid.payload })
     expect(invalidResponse.statusCode).toBe(400)
     expect(invalidResponse.json().code).toBe('unknown_option')
 
-    const withoutImage = multipartImage({ file: Buffer.from([1]), options: JSON.stringify({ include_image: false }) })
+    const withoutImage = multipartImage({ file: sampleImage, options: JSON.stringify({ include_image: false }) })
     const response = await app.inject({ method: 'POST', url: '/v1/ocr', headers: withoutImage.headers, payload: withoutImage.payload })
     expect(response.statusCode).toBe(200)
     expect(response.json().img).toBeNull()
@@ -145,11 +148,11 @@ describe('rapidOCR HTTP API', () => {
     }))
     const app = await createRapidOCRServer({ logger: false, ocr: { recognize } as never, maxConcurrency: 1 })
     openServers.push(app)
-    const firstPayload = multipartImage({ file: Buffer.from([1]) })
+    const firstPayload = multipartImage({ file: sampleImage })
     const firstRequest = app.inject({ method: 'POST', url: '/v1/ocr', headers: firstPayload.headers, payload: firstPayload.payload })
     await recognitionStarted
 
-    const secondPayload = multipartImage({ file: Buffer.from([2]) })
+    const secondPayload = multipartImage({ file: sampleImage })
     const secondResponse = await app.inject({ method: 'POST', url: '/v1/ocr', headers: secondPayload.headers, payload: secondPayload.payload })
     expect(secondResponse.statusCode).toBe(429)
     expect(secondResponse.headers['retry-after']).toBe('1')
@@ -208,11 +211,11 @@ function makeEmptyResult(): RapidOCRResult {
   }
 }
 
-function multipartImage(fields: { file?: Buffer, options?: string }): { headers: Record<string, string>, payload: Buffer } {
+function multipartImage(fields: { file?: Buffer, options?: string, optionsContentType?: string }): { headers: Record<string, string>, payload: Buffer } {
   const boundary = 'rapidocr-test-boundary'
   const parts: Buffer[] = []
   if (fields.options !== undefined) {
-    parts.push(Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="options"\r\n\r\n${fields.options}\r\n`))
+    parts.push(Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="options"\r\nContent-Type: ${fields.optionsContentType ?? 'application/json'}\r\n\r\n${fields.options}\r\n`))
   }
   if (fields.file !== undefined) {
     parts.push(Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="test.png"\r\nContent-Type: image/png\r\n\r\n`))

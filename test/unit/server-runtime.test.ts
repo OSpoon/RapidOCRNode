@@ -24,6 +24,7 @@ describe('rapidOCR server runtime control', () => {
         port: 0,
         maxFileSize: 1024,
         maxConcurrency: 1,
+        maxImagePixels: 20_000_000,
         runtimeDir,
         rapidOptions: {},
         restartArgs: ['serve', 'start', '--runtime-dir', runtimeDir],
@@ -35,7 +36,6 @@ describe('rapidOCR server runtime control', () => {
       expect(create).toHaveBeenCalledWith({ useDetection: true, useClassifier: true, useRecognition: true })
       expect(fakeOcr.warmup).toHaveBeenCalledOnce()
       expect(await fetch(`${status.baseUrl}/health/ready`).then(response => response.json())).toEqual({ status: 'ready' })
-
       await stopServer(runtimeDir)
       await serverRun
       expect(fakeOcr.close).toHaveBeenCalledOnce()

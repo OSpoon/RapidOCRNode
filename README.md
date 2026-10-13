@@ -276,10 +276,11 @@ npx rapidocr-node --config ./rapidocr.yaml serve start \
   --host 127.0.0.1 \
   --port 8000 \
   --max-file-size 10485760 \
+  --max-image-pixels 20000000 \
   --max-concurrency 1
 ~~~
 
-上传大小默认上限为 10 MiB，并发 OCR 请求默认上限为 1；超出并发上限的请求收到 **429** 和 **Retry-After**。如果指定了 `--runtime-dir`，查询、重启和停止时也要指定相同目录。
+上传大小默认上限为 10 MiB，解码后的图片默认最多 20,000,000 像素，并发 OCR 请求默认上限为 1。可通过 `--max-file-size`、`--max-image-pixels` 和 `--max-concurrency` 调整；图片字节数或像素数超限时返回 **413**，超出并发上限的请求收到 **429** 和 **Retry-After**。如果指定了 `--runtime-dir`，查询、重启和停止时也要指定相同目录。
 
 服务默认只监听本机，API 不提供身份验证。需要从其他机器访问时，请在受信网络中部署，并在反向代理或网络层配置访问控制。
 
@@ -302,7 +303,7 @@ npx rapidocr-node --config ./rapidocr.yaml serve start \
 ~~~sh
 curl -X POST http://127.0.0.1:8000/v1/ocr \
   -F 'file=@receipt.jpg' \
-  -F 'options={"include_image":false}'
+  -F 'options={"include_image":false};type=application/json'
 ~~~
 
 带选项的请求：
@@ -310,7 +311,7 @@ curl -X POST http://127.0.0.1:8000/v1/ocr \
 ~~~sh
 curl -X POST http://127.0.0.1:8000/v1/ocr \
   -F 'file=@receipt.jpg' \
-  -F 'options={"return_word_boxes":true,"include_image":false}'
+  -F 'options={"return_word_boxes":true,"include_image":false};type=application/json'
 ~~~
 
 支持的请求选项：

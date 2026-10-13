@@ -43,6 +43,7 @@ export interface ServerRuntimeOptions {
   port: number
   maxFileSize: number
   maxConcurrency: number
+  maxImagePixels: number
   runtimeDir: string
   rapidOptions: RapidOCROptions
   restartArgs: string[]
@@ -62,8 +63,13 @@ export async function startServerProcess(
   const runtimeDir = resolve(runtimeDirectory)
   await ensureRuntimeDirectory(runtimeDir)
   const current = await queryRuntimeStatus(runtimeDir).catch(() => undefined)
-  if (current)
-    return current
+  if (current) {
+    const currentState = await readRuntimeState(runtimeDir)
+    const sameArguments = JSON.stringify(currentState.restartArgs) === JSON.stringify(restartArgs)
+    if (currentState.cwd === workingDirectory && sameArguments)
+      return current
+    throw new Error(`An OCR server is already running in ${runtimeDir} with different settings. Use "rapidocr-node serve restart" to apply new options.`)
+  }
 
   const logFile = join(runtimeDir, 'server.log')
   const logFd = await open(logFile, 'a', 0o600)
@@ -177,6 +183,7 @@ export async function runServer(options: ServerRuntimeOptions): Promise<void> {
     app = await createRapidOCRServer({
       maxConcurrency: options.maxConcurrency,
       maxFileSize: options.maxFileSize,
+      maxImagePixels: options.maxImagePixels,
       ocr,
     })
     const address = await app.listen({ host: options.host, port: options.port })
@@ -267,20 +274,19 @@ export async function stopServer(runtimeDirectory: string, timeoutMs = STOP_TIME
   throw new Error(`Timed out waiting ${timeoutMs}ms for the OCR server to stop.`)
 }
 
-export async function restartServer(runtimeDirectory: string): Promise<RuntimeStatus> {
+export async function restartServer(runtimeDirectory: string, entryPath = process.argv[1]): Promise<RuntimeStatus> {
   const runtimeDir = resolve(runtimeDirectory)
   const state = await readRuntimeState(runtimeDir)
   const args = withRuntimeDirectory(state.restartArgs, runtimeDir)
-  await stopServer(runtimeDir)
-  const cliEntry = process.argv[1]
-  if (!cliEntry)
+  if (!entryPath)
     throw new Error('Cannot restart the OCR server because the CLI entrypoint is unavailable.')
   const runArgs = [...args]
   const serveIndex = runArgs.indexOf('serve')
   if (serveIndex < 0 || runArgs[serveIndex + 1] !== 'start')
     throw new Error('Saved server restart arguments are invalid.')
   runArgs[serveIndex + 1] = 'run'
-  return startServerProcess(cliEntry, runArgs, args, runtimeDir, state.cwd)
+  await stopServer(runtimeDir)
+  return startServerProcess(entryPath, runArgs, args, runtimeDir, state.cwd)
 }
 
 async function createControlServer(shutdown: () => Promise<void>): Promise<{ port: number, server: Server, token: string }> {
