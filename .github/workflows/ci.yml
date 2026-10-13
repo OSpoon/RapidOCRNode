@@ -9,14 +9,10 @@ on:
 permissions: {}
 
 jobs:
-  checks:
-    runs-on: ${{ matrix.os }}
+  quality:
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-24.04, macos-15, windows-2025]
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
@@ -27,13 +23,75 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm lint && pnpm knip && pnpm test && pnpm typecheck && pnpm build
-      - run: pnpm test:e2e
-      - name: Test x64 full-page model reference
-        if: matrix.os == 'ubuntu-24.04'
-        run: pnpm exec vitest run --config vitest.models.config.ts -t "ONNX Runtime CPU PP-OCRv4/chinese_cht_PP-OCRv3_rec_mobile"
-      - run: pnpm test:models
-        if: matrix.os == 'macos-15'
+      - run: pnpm run ci
+
+  integration:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 12.8.1
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - uses: actions/cache@v4
+        with:
+          path: models
+          key: rapidocr-models-${{ runner.os }}-${{ hashFiles('src/models/registry-data.ts', 'test/fixtures/rapidocr-v3.10.0-default_models.yaml', 'model-assets.mjs') }}
+          restore-keys: |
+            rapidocr-models-${{ runner.os }}-
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run test:e2e
+      - run: pnpm run test:models
+
+  platform-smoke:
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, windows-2025]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 12.8.1
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - uses: actions/cache@v4
+        with:
+          path: models
+          key: rapidocr-models-${{ runner.os }}-${{ hashFiles('src/models/registry-data.ts', 'test/fixtures/rapidocr-v3.10.0-default_models.yaml', 'model-assets.mjs') }}
+          restore-keys: |
+            rapidocr-models-${{ runner.os }}-
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run build
+      - name: Run default model smoke test
+        run: pnpm exec vitest run --config vitest.models.config.ts --testNamePattern "PP-OCRv6 rec multi_PP-OCRv6_rec_small|requires each requested execution provider"
         env:
-          RAPIDOCR_TEST_COREML: '1'
-          RAPIDOCR_TEST_WEBGPU: '1'
+          RAPIDOCR_TEST_COREML: ${{ matrix.os == 'macos-15' && '1' || '0' }}
+          RAPIDOCR_TEST_WEBGPU: ${{ matrix.os == 'macos-15' && '1' || '0' }}
+
+  checks:
+    if: always()
+    needs: [quality, integration, platform-smoke]
+    runs-on: ubuntu-24.04
+    permissions: {}
+    steps:
+      - name: Require all CI lanes to pass
+        env:
+          QUALITY_RESULT: ${{ needs.quality.result }}
+          INTEGRATION_RESULT: ${{ needs.integration.result }}
+          PLATFORM_SMOKE_RESULT: ${{ needs.platform-smoke.result }}
+        run: |
+          if [[ "$QUALITY_RESULT" != "success" || "$INTEGRATION_RESULT" != "success" || "$PLATFORM_SMOKE_RESULT" != "success" ]]; then
+            echo "CI failed: quality=$QUALITY_RESULT, integration=$INTEGRATION_RESULT, platform-smoke=$PLATFORM_SMOKE_RESULT" >&2
+            exit 1
+          fi

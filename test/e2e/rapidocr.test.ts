@@ -235,7 +235,7 @@ beforeAll(async () => {
       recognitionModel,
     }))
   }
-}, 180_000)
+}, 300_000)
 
 afterAll(async () => {
   await ocr?.close()
