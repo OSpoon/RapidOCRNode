@@ -3,6 +3,7 @@ import type { RapidOCRCallOptions, RapidOCROptions, RapidOCRResult } from '../sh
 import { Buffer } from 'node:buffer'
 import multipart from '@fastify/multipart'
 import Fastify from 'fastify'
+import packageJson from '../../package.json' with { type: 'json' }
 import { LoadImageError } from '../image/image.js'
 import { RapidOCR } from '../pipeline/rapidocr.js'
 
@@ -322,7 +323,7 @@ function serializeResult(result: RapidOCRResult, includeImage: boolean, requestI
 function openApiDocument(maxFileSize: number): Record<string, unknown> {
   return {
     openapi: '3.1.0',
-    info: { title: 'RapidOCR Node API', version: '1.0.0' },
+    info: { title: 'RapidOCR Node API', version: packageJson.version },
     paths: {
       '/health/live': { get: { operationId: 'live', responses: { 200: { description: 'Process is alive.' } } } },
       '/health/ready': { get: { operationId: 'ready', responses: { 200: { description: 'Models are ready.' }, 503: { description: 'Models are not ready.' } } } },
