@@ -1,0 +1,151 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+import { OCRTextStructurer } from '../../src/pipeline/structured-output.js'
+
+const { disposeMock, generatorMock, pipelineMock } = vi.hoisted(() => ({
+  disposeMock: vi.fn(),
+  generatorMock: vi.fn(),
+  pipelineMock: vi.fn(),
+}))
+
+vi.mock('@huggingface/transformers', () => ({
+  pipeline: pipelineMock,
+}))
+
+beforeEach(() => {
+  disposeMock.mockReset()
+  generatorMock.mockReset()
+  pipelineMock.mockReset()
+  generatorMock.mockResolvedValue(makeResponse({ invoiceNumber: 'INV-001' }))
+  pipelineMock.mockResolvedValue(Object.assign(generatorMock, { dispose: disposeMock }))
+})
+
+afterEach(() => {
+  vi.clearAllMocks()
+})
+
+describe('ocr text structurer', () => {
+  it('loads the optional Q4F16 text model lazily and grounds values in source lines', async () => {
+    generatorMock.mockResolvedValueOnce(makeResponse({
+      invoiceNumber: 'INV-001',
+      totalAmount: '¥999.00',
+    }))
+    const structurer = new OCRTextStructurer()
+    const lines = [
+      { text: '发票号码 INV-001' },
+      { text: '价税合计（小写）¥100.00' },
+    ]
+    const fields = { invoiceNumber: '发票号码', totalAmount: '价税合计' }
+
+    expect(pipelineMock).not.toHaveBeenCalled()
+    const result = await structurer.extract(lines, fields)
+
+    expect(result).toEqual({
+      evidence: { invoiceNumber: [0], totalAmount: [] },
+      values: { invoiceNumber: 'INV-001', totalAmount: null },
+    })
+    expect(pipelineMock).toHaveBeenCalledWith(
+      'text-generation',
+      'onnx-community/Qwen3-0.6B-ONNX',
+      expect.objectContaining({ device: 'cpu', dtype: 'q4f16' }),
+    )
+    expect(generatorMock).toHaveBeenCalledOnce()
+    expect(generatorMock).toHaveBeenCalledWith(expect.any(Array), {
+      do_sample: false,
+      max_length: null,
+      max_new_tokens: null,
+    })
+    await structurer.close()
+    expect(disposeMock).toHaveBeenCalledOnce()
+  })
+
+  it('uses a caller-selected model and token limit', async () => {
+    const structurer = new OCRTextStructurer({
+      modelId: 'local/receipt-model',
+      maxNewTokens: 1024,
+    })
+    await structurer.extract([{ text: '单据号 INV-001' }], { invoiceNumber: '单据号' })
+
+    expect(pipelineMock).toHaveBeenCalledWith(
+      'text-generation',
+      'local/receipt-model',
+      expect.objectContaining({ device: 'cpu', dtype: 'q4f16' }),
+    )
+    expect(generatorMock).toHaveBeenCalledWith(expect.any(Array), {
+      do_sample: false,
+      max_new_tokens: 1024,
+    })
+    await structurer.close()
+  })
+
+  it('skips model loading when OCR contains no non-empty lines', async () => {
+    const structurer = new OCRTextStructurer()
+    const result = await structurer.extract([{ text: ' ' }, { text: '' }], {
+      invoiceNumber: '发票号码',
+      totalAmount: '价税合计',
+    })
+
+    expect(result).toEqual({
+      evidence: { invoiceNumber: [], totalAmount: [] },
+      values: { invoiceNumber: null, totalAmount: null },
+    })
+    expect(pipelineMock).not.toHaveBeenCalled()
+    await structurer.close()
+  })
+
+  it('validates requested fields and rejects malformed model JSON', async () => {
+    const structurer = new OCRTextStructurer()
+    await expect(structurer.extract([], {})).rejects.toThrow('fields must contain at least one field.')
+    await expect(structurer.extract([], { invoiceNumber: ' ' })).rejects.toThrow('Field description for "invoiceNumber" must be a non-empty string.')
+
+    generatorMock.mockResolvedValueOnce(makeResponseText('not JSON'))
+    await expect(structurer.extract([{ text: '发票号码 INV-001' }], { invoiceNumber: '发票号码' }))
+      .rejects
+      .toThrow('The text generation model did not return a JSON object.')
+    await structurer.close()
+  })
+
+  it('waits for active extraction before disposing and rejects work after closing starts', async () => {
+    const structurer = new OCRTextStructurer()
+    let finishGeneration: (() => void) | undefined
+    let announceGeneration: (() => void) | undefined
+    const generationStarted = new Promise<void>((resolve) => {
+      announceGeneration = resolve
+    })
+    generatorMock.mockImplementationOnce(async () => {
+      announceGeneration?.()
+      await new Promise<void>((resolve) => {
+        finishGeneration = resolve
+      })
+      return makeResponse({
+        invoiceNumber: 'INV-001',
+      })
+    })
+
+    const extraction = structurer.extract([{ text: '发票号码 INV-001' }], { invoiceNumber: '发票号码' })
+    await generationStarted
+    const closing = structurer.close()
+
+    expect(disposeMock).not.toHaveBeenCalled()
+    await expect(structurer.extract([{ text: '发票号码 INV-002' }], { invoiceNumber: '发票号码' }))
+      .rejects
+      .toThrow('OCRTextStructurer is closing.')
+
+    finishGeneration?.()
+    await expect(extraction).resolves.toMatchObject({ values: { invoiceNumber: 'INV-001' } })
+    await closing
+    expect(disposeMock).toHaveBeenCalledOnce()
+  })
+})
+
+function makeResponse(payload: Record<string, string | null>): unknown[] {
+  return makeResponseText(JSON.stringify(payload))
+}
+
+function makeResponseText(content: string): unknown[] {
+  return [{
+    generated_text: [
+      { role: 'assistant', content },
+    ],
+  }]
+}

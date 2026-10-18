@@ -26,6 +26,7 @@
     ".": "./dist/index.mjs",
     "./cli": "./dist/cli.mjs",
     "./server": "./dist/server.mjs",
+    "./structured-output": "./dist/structured-output.mjs",
     "./package.json": "./package.json"
   },
   "types": "./dist/index.d.mts",
@@ -56,6 +57,14 @@
     "ci": "pnpm run lint && pnpm run knip && pnpm run test && pnpm run typecheck && pnpm run build",
     "prepare": "git config core.hooksPath .githooks && simple-git-hooks"
   },
+  "peerDependencies": {
+    "@huggingface/transformers": "catalog:"
+  },
+  "peerDependenciesMeta": {
+    "@huggingface/transformers": {
+      "optional": true
+    }
+  },
   "dependencies": {
     "@fastify/multipart": "catalog:",
     "@techstark/opencv-js": "catalog:",
@@ -71,6 +80,7 @@
   },
   "devDependencies": {
     "@antfu/eslint-config": "catalog:cli",
+    "@huggingface/transformers": "catalog:",
     "@types/clipper-lib": "catalog:",
     "@types/node": "catalog:types",
     "bumpp": "catalog:cli",

@@ -4,6 +4,8 @@
 
 RapidOCR 上游将 PP-OCR 模型资源标注为 Apache-2.0，并说明模型权利归模型原始权利人及相关 PaddleOCR 权利方所有。格式、许可和归属以[上游模型许可说明](https://rapidai.github.io/RapidOCRDocs/main/en/model_licenses/)及[上游 v3.10.0 许可文件](https://github.com/RapidAI/RapidOCR/blob/v3.10.0/LICENSE)为准。本项目不主张模型权利，也不把模型作为 npm 包的一部分再分发。
 
+票据字段结构化模块默认从 [ONNX Community](https://huggingface.co/onnx-community/Qwen3-0.6B-ONNX) 获取 Qwen3-0.6B 的 ONNX 格式模型；其[原始模型许可](https://huggingface.co/Qwen/Qwen3-0.6B/blob/main/LICENSE)为 Apache-2.0。该模型由用户首次调用结构化模块时下载，本项目不随 npm 包分发该模型。
+
 ## 可视化字体
 
 可视化字体按需从 RapidOCR v3.10.0 资源仓库下载，并按注册表中的 SHA-256 校验。字体有各自的权利和许可条款；上游模型许可说明不将字体纳入模型许可。使用者应遵守对应字体许可。
