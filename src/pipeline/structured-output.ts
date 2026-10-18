@@ -1,5 +1,6 @@
 import type { DataType, Message, PretrainedModelOptions, TextGenerationPipeline } from '@huggingface/transformers'
 import type { RecognizedLine } from '../shared/types.js'
+import { getModelDirectory } from '../models/download.js'
 
 const DEFAULT_MODEL_ID = 'onnx-community/Qwen3-0.6B-ONNX'
 const DEFAULT_DTYPE: DataType = 'q4f16'
@@ -27,7 +28,9 @@ export interface OCRTextStructurerOptions {
   modelId?: string
   /** ONNX model quantization. The default Qwen3 model uses Q4F16. */
   dtype?: DataType
-  /** Optional local cache directory for downloaded model files. */
+  /** Shared model directory. Defaults to the same directory used by RapidOCR and RAPIDOCR_MODEL_DIR. */
+  modelDirectory?: string
+  /** Optional Transformers.js cache override; takes precedence over modelDirectory. */
   cacheDirectory?: string
   /** Optional immutable Hugging Face revision for reproducible deployments. */
   revision?: string
@@ -47,21 +50,23 @@ export class OCRTextStructurer {
 
   private readonly modelId: string
   private readonly dtype: DataType
-  private readonly cacheDirectory: string | undefined
+  private readonly cacheDirectory: string
   private readonly revision: string | undefined
   private readonly maxNewTokens: number | undefined
 
   constructor(options: OCRTextStructurerOptions = {}) {
     this.modelId = options.modelId ?? DEFAULT_MODEL_ID
     this.dtype = options.dtype ?? DEFAULT_DTYPE
-    this.cacheDirectory = options.cacheDirectory
+    this.cacheDirectory = getModelDirectory(options.cacheDirectory ?? options.modelDirectory)
     this.revision = options.revision
     this.maxNewTokens = options.maxNewTokens
 
     if (this.modelId.trim().length === 0)
       throw new TypeError('modelId must be a non-empty string.')
-    if (this.cacheDirectory !== undefined && this.cacheDirectory.trim().length === 0)
+    if (options.cacheDirectory !== undefined && options.cacheDirectory.trim().length === 0)
       throw new TypeError('cacheDirectory must be a non-empty path when provided.')
+    if (options.modelDirectory !== undefined && options.modelDirectory.trim().length === 0)
+      throw new TypeError('modelDirectory must be a non-empty path when provided.')
     if (this.revision !== undefined && this.revision.trim().length === 0)
       throw new TypeError('revision must be a non-empty string when provided.')
     if (this.maxNewTokens !== undefined && (!Number.isInteger(this.maxNewTokens) || this.maxNewTokens < 1))
@@ -174,7 +179,7 @@ export class OCRTextStructurer {
     const modelOptions: PretrainedModelOptions = {
       device: 'cpu',
       dtype: this.dtype,
-      ...(this.cacheDirectory === undefined ? {} : { cache_dir: this.cacheDirectory }),
+      cache_dir: this.cacheDirectory,
       ...(this.revision === undefined ? {} : { revision: this.revision }),
     }
     const generatorPromise = pipeline('text-generation', this.modelId, modelOptions)

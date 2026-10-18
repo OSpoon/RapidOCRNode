@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { getModelDirectory } from '../../src/models/download.js'
 import { OCRTextStructurer } from '../../src/pipeline/structured-output.js'
 
 const { disposeMock, generatorMock, pipelineMock } = vi.hoisted(() => ({
@@ -47,7 +48,11 @@ describe('ocr text structurer', () => {
     expect(pipelineMock).toHaveBeenCalledWith(
       'text-generation',
       'onnx-community/Qwen3-0.6B-ONNX',
-      expect.objectContaining({ device: 'cpu', dtype: 'q4f16' }),
+      expect.objectContaining({
+        device: 'cpu',
+        dtype: 'q4f16',
+        cache_dir: getModelDirectory(),
+      }),
     )
     expect(generatorMock).toHaveBeenCalledOnce()
     expect(generatorMock).toHaveBeenCalledWith(expect.any(Array), {
@@ -63,13 +68,18 @@ describe('ocr text structurer', () => {
     const structurer = new OCRTextStructurer({
       modelId: 'local/receipt-model',
       maxNewTokens: 1024,
+      modelDirectory: './test-models',
     })
     await structurer.extract([{ text: '单据号 INV-001' }], { invoiceNumber: '单据号' })
 
     expect(pipelineMock).toHaveBeenCalledWith(
       'text-generation',
       'local/receipt-model',
-      expect.objectContaining({ device: 'cpu', dtype: 'q4f16' }),
+      expect.objectContaining({
+        device: 'cpu',
+        dtype: 'q4f16',
+        cache_dir: getModelDirectory('./test-models'),
+      }),
     )
     expect(generatorMock).toHaveBeenCalledWith(expect.any(Array), {
       do_sample: false,

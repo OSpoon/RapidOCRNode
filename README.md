@@ -121,15 +121,13 @@ console.log(detection.type, detection.boxes)
 
 ### 票据字段结构化（可选）
 
-这一步是独立的 OCR 后处理：先照常调用 `recognize()`，再把识别出的文字行交给结构化模块。它不会改变 RapidOCR 的识别结果，也不会自动运行。建议仅在处理发票、收据等票据时启用；普通文档 OCR 通常不需要这一步。
+处理发票、收据时，可以在 OCR 后按需要提取字段。普通文档识别直接使用 `recognize()` 即可。
 
-首次使用前安装可选依赖：
+安装可选依赖：
 
 ~~~sh
 npm install @huggingface/transformers
 ~~~
-
-模块默认使用 Qwen3-0.6B 的 Q4F16 ONNX 文本模型。模型会在第一次调用 `extract()` 时下载并缓存，模型文件约 570 MB；后续调用复用缓存。结构化模型只读取 OCR 文字行，不会再次处理图片。默认不设置生成 token 上限，由模型结束标记停止生成；如果需要限制生成长度，可以设置 `maxNewTokens`。也可以通过 `modelId` 和 `dtype` 选择 Transformers.js 支持的其他文本生成模型及其量化格式：
 
 ~~~ts
 import { RapidOCR } from 'rapidocr-node'
@@ -137,12 +135,6 @@ import { OCRTextStructurer } from 'rapidocr-node/structured-output'
 
 const ocr = await RapidOCR.create()
 const structurer = new OCRTextStructurer()
-// Or configure a model and an optional generation limit:
-// const structurer = new OCRTextStructurer({
-//   modelId: 'onnx-community/Qwen3-0.6B-ONNX',
-//   dtype: 'q4f16',
-//   maxNewTokens: 1024,
-// })
 try {
   const result = await ocr.recognize('./invoice.jpg')
   const fields = result.type === 'ocr'
@@ -161,7 +153,7 @@ finally {
 }
 ~~~
 
-每个字段的值保留 OCR 文本中的写法；模型无法从文字行中可靠找到字段时，值为 `null`。`evidence` 给出对应的 `lines` 下标。该模块不做字段校验、金额计算或内容修正。
+`values` 返回提取结果；无法找到的字段为 `null`。`evidence` 标出对应的 OCR 文字行，方便核对。
 
 ### 选模型和识别语言
 
