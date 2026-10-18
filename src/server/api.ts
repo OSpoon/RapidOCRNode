@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify'
+import type { OCRStructuredFields, OCRStructuredResult, OCRTextStructurerOptions } from '../pipeline/structured-output.js'
 import type { RapidOCRCallOptions, RapidOCROptions, RapidOCRResult } from '../shared/types.js'
 import { Buffer } from 'node:buffer'
 import multipart from '@fastify/multipart'
@@ -7,6 +8,7 @@ import sharp from 'sharp'
 import packageJson from '../../package.json' with { type: 'json' }
 import { LoadImageError } from '../image/image.js'
 import { RapidOCR } from '../pipeline/rapidocr.js'
+import { OCRTextStructurer } from '../pipeline/structured-output.js'
 
 export interface RapidOCRServerOptions {
   maxConcurrency?: number
@@ -14,7 +16,9 @@ export interface RapidOCRServerOptions {
   maxImagePixels?: number
   logger?: boolean
   ocr?: Pick<RapidOCR, 'recognize'>
+  structurer?: Pick<OCRTextStructurer, 'extract' | 'close'>
   rapidOptions?: RapidOCROptions
+  structuredOutput?: OCRTextStructurerOptions
   ready?: boolean
 }
 
@@ -25,6 +29,7 @@ export interface RapidOCRServer extends FastifyInstance {
 
 interface RequestOptions extends RapidOCRCallOptions {
   includeImage: boolean
+  structuredFields?: OCRStructuredFields
 }
 
 const DEFAULT_MAX_FILE_SIZE = 10 * 1024 * 1024
@@ -60,6 +65,15 @@ export async function createRapidOCRServer(options: RapidOCRServerOptions = {}):
       throw error
     }
   }
+  const ownsStructurer = options.structurer === undefined
+  const structurer = options.structurer ?? new OCRTextStructurer({
+    ...(options.structuredOutput ?? {}),
+    ...(options.structuredOutput?.modelDirectory === undefined
+      && options.structuredOutput?.cacheDirectory === undefined
+      && options.rapidOptions?.modelDirectory !== undefined
+      ? { modelDirectory: options.rapidOptions.modelDirectory }
+      : {}),
+  })
   const app = Fastify({
     bodyLimit: maxFileSize + MAX_OPTIONS_SIZE + 64 * 1024,
     logger: options.logger ?? true,
@@ -74,6 +88,8 @@ export async function createRapidOCRServer(options: RapidOCRServerOptions = {}):
   const rapidOcrApp = app as unknown as RapidOCRServer
   if (ownsOcr)
     app.addHook('onClose', async () => (ocr as RapidOCR).close())
+  if (ownsStructurer)
+    app.addHook('onClose', async () => structurer.close())
 
   await app.register(multipart, {
     limits: {
@@ -166,7 +182,12 @@ export async function createRapidOCRServer(options: RapidOCRServerOptions = {}):
           throw new ApiError(422, 'invalid_image', 'The uploaded data could not be decoded as an image.')
         throw error
       }
-      return serializeResult(result, requestOptions.includeImage, request.id)
+      if (requestOptions.structuredFields !== undefined && result.type !== 'ocr' && result.type !== 'empty')
+        throw new Error(`Structured extraction requires a full OCR result; received ${result.type}.`)
+      const structured = requestOptions.structuredFields === undefined
+        ? undefined
+        : await structurer.extract(result.lines, requestOptions.structuredFields)
+      return serializeResult(result, requestOptions.includeImage, request.id, structured)
     }
     finally {
       activeRequests--
@@ -278,7 +299,7 @@ function parseRequestOptions(value: unknown): RequestOptions {
   if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed))
     throw new ApiError(400, 'invalid_options', 'The "options" field must contain a JSON object.')
   const values = parsed as Record<string, unknown>
-  const allowed = new Set(['box_threshold', 'unclip_ratio', 'text_score_threshold', 'return_word_boxes', 'return_single_char_boxes', 'include_image'])
+  const allowed = new Set(['box_threshold', 'unclip_ratio', 'text_score_threshold', 'return_word_boxes', 'return_single_char_boxes', 'include_image', 'structured_fields'])
   for (const key of Object.keys(values)) {
     if (!allowed.has(key))
       throw new ApiError(400, 'unknown_option', `Unsupported OCR option: ${key}.`)
@@ -304,6 +325,7 @@ function parseRequestOptions(value: unknown): RequestOptions {
   const textScoreThreshold = numberOption('text_score_threshold', 0, 1)
   const returnWordBoxes = booleanOption('return_word_boxes')
   const returnSingleCharBoxes = booleanOption('return_single_char_boxes')
+  const structuredFields = parseStructuredFields(values.structured_fields)
   return {
     includeImage: booleanOption('include_image', true)!,
     ...(boxThreshold === undefined ? {} : { boxThreshold }),
@@ -311,10 +333,32 @@ function parseRequestOptions(value: unknown): RequestOptions {
     ...(textScoreThreshold === undefined ? {} : { textScoreThreshold }),
     ...(returnWordBoxes === undefined ? {} : { returnWordBoxes }),
     ...(returnSingleCharBoxes === undefined ? {} : { returnSingleCharBoxes }),
+    ...(structuredFields === undefined ? {} : { structuredFields }),
   }
 }
 
-function serializeResult(result: RapidOCRResult, includeImage: boolean, requestId: string): Record<string, unknown> {
+function parseStructuredFields(value: unknown): OCRStructuredFields | undefined {
+  if (value === undefined)
+    return undefined
+  if (value === null || typeof value !== 'object' || Array.isArray(value))
+    throw new ApiError(400, 'invalid_option', 'structured_fields must be an object mapping field keys to descriptions.')
+  const fields = value as Record<string, unknown>
+  const keys = Object.keys(fields)
+  if (keys.length === 0)
+    throw new ApiError(400, 'invalid_option', 'structured_fields must contain at least one field.')
+  for (const key of keys) {
+    if (key.trim().length === 0 || typeof fields[key] !== 'string' || (fields[key] as string).trim().length === 0)
+      throw new ApiError(400, 'invalid_option', 'structured_fields must map non-empty field keys to non-empty descriptions.')
+  }
+  return fields as OCRStructuredFields
+}
+
+function serializeResult(
+  result: RapidOCRResult,
+  includeImage: boolean,
+  requestId: string,
+  structured?: OCRStructuredResult<OCRStructuredFields>,
+): Record<string, unknown> {
   if (result.type === 'empty') {
     return {
       request_id: requestId,
@@ -326,6 +370,7 @@ function serializeResult(result: RapidOCRResult, includeImage: boolean, requestI
       word_results: [],
       elapse_list: result.elapse_list,
       elapse: result.elapse,
+      ...(structured === undefined ? {} : { structured }),
     }
   }
   if (result.type !== 'ocr')
@@ -350,6 +395,7 @@ function serializeResult(result: RapidOCRResult, includeImage: boolean, requestI
     lang_rec: result.lang_rec,
     elapse_list: result.elapse_list,
     elapse: result.elapse,
+    ...(structured === undefined ? {} : { structured }),
   }
 }
 
@@ -408,6 +454,12 @@ function openApiDocument(maxFileSize: number, maxImagePixels: number): Record<st
             return_word_boxes: { type: 'boolean', default: false },
             return_single_char_boxes: { type: 'boolean', default: false },
             include_image: { type: 'boolean', default: true },
+            structured_fields: {
+              type: 'object',
+              minProperties: 1,
+              additionalProperties: { type: 'string', minLength: 1 },
+              description: 'Optional field names mapped to descriptions, for example {"invoiceNumber":"发票号码"}.',
+            },
           },
         },
         OcrResponse: {
@@ -433,6 +485,7 @@ function openApiDocument(maxFileSize: number, maxImagePixels: number): Record<st
             lang_rec: { type: 'string' },
             elapse_list: { type: 'array', items: { type: 'number' }, minItems: 3, maxItems: 3 },
             elapse: { type: 'number' },
+            structured: { $ref: '#/components/schemas/StructuredResult' },
           },
         },
         EmptyResult: {
@@ -448,6 +501,22 @@ function openApiDocument(maxFileSize: number, maxImagePixels: number): Record<st
             word_results: { type: 'array', maxItems: 0 },
             elapse_list: { type: 'array', items: { type: 'number' }, minItems: 3, maxItems: 3 },
             elapse: { type: 'number' },
+            structured: { $ref: '#/components/schemas/StructuredResult' },
+          },
+        },
+        StructuredResult: {
+          type: 'object',
+          required: ['values', 'evidence'],
+          properties: {
+            values: {
+              type: 'object',
+              additionalProperties: { oneOf: [{ type: 'string' }, { type: 'null' }] },
+            },
+            evidence: {
+              type: 'object',
+              additionalProperties: { type: 'array', items: { type: 'integer', minimum: 0 } },
+              description: 'OCR line indexes supporting each extracted value.',
+            },
           },
         },
         ProblemDetail: {

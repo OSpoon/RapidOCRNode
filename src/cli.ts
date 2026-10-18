@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 import type { ModelStage, OCRVersion } from './models/registry.js'
+import type { OCRStructuredFields, OCRTextStructurerOptions } from './pipeline/structured-output.js'
 import type { RapidOCROptions, RapidOCRResult } from './shared/types.js'
+import { readFile } from 'node:fs/promises'
 import { basename, resolve } from 'node:path'
 import process from 'node:process'
 import { Command, CommanderError, InvalidArgumentError, Option } from 'commander'
@@ -9,6 +11,7 @@ import { resolveRapidOCROptions, writeRapidOCRConfig } from './config/rapidocr.j
 import { downloadModels } from './models/download.js'
 import { listSupportedLanguages } from './models/registry.js'
 import { RapidOCR } from './pipeline/rapidocr.js'
+import { OCRTextStructurer } from './pipeline/structured-output.js'
 import {
   defaultRuntimeDirectory,
   queryRuntimeStatus,
@@ -66,23 +69,35 @@ async function runCommand(command: CliCommand, positionalImage: string | undefin
     return
   }
 
-  const ocr = await RapidOCR.create(rapidOptions)
-  try {
-    if (command === 'check') {
+  if (command === 'check') {
+    const ocr = await RapidOCR.create(rapidOptions)
+    try {
       const result = await ocr.recognize(SAMPLE_IMAGE_URL)
       if (!hasOutput(result))
         throw new Error(`OCR check returned no output (result type: ${result.type}).`)
       process.stdout.write(`Success: RapidOCR Node recognized ${firstText(result) || 'text'} from the sample image.\n`)
-      return
     }
+    finally {
+      await ocr.close()
+    }
+    return
+  }
 
-    const optionImage = stringOption(options.img) ?? stringOption(options.imgPath)
-    if (positionalImage && optionImage)
-      throw new TypeError('Provide the image as a positional argument or with --img, not both.')
-    const imagePath = positionalImage ?? optionImage
-    if (!imagePath)
-      throw new TypeError('Provide an image path or URL.')
+  const optionImage = stringOption(options.img) ?? stringOption(options.imgPath)
+  if (positionalImage && optionImage)
+    throw new TypeError('Provide the image as a positional argument or with --img, not both.')
+  const imagePath = positionalImage ?? optionImage
+  if (!imagePath)
+    throw new TypeError('Provide an image path or URL.')
 
+  const structuredFields = await readStructuredFields(stringOption(options.structuredFields))
+  if (structuredFields === undefined && (options.structuredModel !== undefined || options.structuredMaxNewTokens !== undefined))
+    throw new TypeError('--structured-model and --structured-max-new-tokens require --structured-fields.')
+  if (structuredFields !== undefined && options.output === 'markdown')
+    throw new TypeError('Structured extraction requires --output json.')
+
+  const ocr = await RapidOCR.create(rapidOptions)
+  try {
     const result = await ocr.recognize(imagePath, {
       ...(options.wordBoxes === undefined && options.returnWordBox === undefined
         ? {}
@@ -121,7 +136,21 @@ async function runCommand(command: CliCommand, positionalImage: string | undefin
     const json = result.type === 'ocr' || result.type === 'empty'
       ? result.toJSON()
       : result
-    process.stdout.write(`${JSON.stringify(json, null, 2)}\n`)
+    if (structuredFields === undefined) {
+      process.stdout.write(`${JSON.stringify(json, null, 2)}\n`)
+      return
+    }
+    if (result.type !== 'ocr' && result.type !== 'empty')
+      throw new TypeError(`Structured extraction requires a full OCR result; received ${result.type}.`)
+
+    const structurer = new OCRTextStructurer(structuredOutputOptions(options, rapidOptions))
+    try {
+      const structured = await structurer.extract(result.lines, structuredFields)
+      process.stdout.write(`${JSON.stringify({ ocr: json, structured }, null, 2)}\n`)
+    }
+    finally {
+      await structurer.close()
+    }
   }
   finally {
     await ocr.close()
@@ -154,6 +183,9 @@ function createCli(): Command {
     .exitOverride()
     .option('--config <path>', 'Read an upstream-style YAML/JSON config')
     .option('--model-dir <path>', 'Model and font cache directory')
+    .option('--structured-fields <json-or-path>', 'Extract fields using a JSON object or a JSON file (invoice and receipt use)')
+    .option('--structured-model <id-or-path>', 'Text model for structured extraction')
+    .option('--structured-max-new-tokens <count>', 'Optional generation token limit for structured extraction', parsePositiveInteger)
     .option('--no-download', 'Disable automatic model downloads (enabled by default)')
     .option('--list_langs, --list-langs', 'List languages supported by a task model')
     .addOption(new Option('--task <task>', 'Task for --list-langs: det, cls, or rec').choices(['det', 'cls', 'rec']))
@@ -197,6 +229,8 @@ function createCli(): Command {
     .option('--max-file-size <bytes>', 'Maximum uploaded image size', parsePositiveInteger, 10 * 1024 * 1024)
     .option('--max-image-pixels <pixels>', 'Maximum decoded image pixel count', parsePositiveInteger, 20_000_000)
     .option('--max-concurrency <count>', 'Maximum concurrent OCR requests', parsePositiveInteger, 1)
+    .option('--structured-model <id-or-path>', 'Text model for optional invoice/receipt field extraction')
+    .option('--structured-max-new-tokens <count>', 'Optional generation token limit for structured extraction', parsePositiveInteger)
 
   serverOptions(serve.command('run'))
     .description('Run the HTTP API in the foreground')
@@ -206,6 +240,7 @@ function createCli(): Command {
       const envArgs = process.env.RAPIDOCR_SERVE_RESTART_ARGS
       const parsedRestartArgs = envArgs ? parseRestartArgs(envArgs) : []
       const savedRestartArgs = parsedRestartArgs.length > 0 ? parsedRestartArgs : restartArgs
+      const rapidOptions = await resolveRapidOCROptions(toRapidOptions(options))
       await runServer({
         host: stringOption(options.host) ?? '127.0.0.1',
         port: numberOption(options.port, 8000),
@@ -213,7 +248,8 @@ function createCli(): Command {
         maxConcurrency: numberOption(options.maxConcurrency, 1),
         maxImagePixels: numberOption(options.maxImagePixels, 20_000_000),
         runtimeDir: stringOption(options.runtimeDir) ?? defaultRuntimeDirectory(),
-        rapidOptions: await resolveRapidOCROptions(toRapidOptions(options)),
+        rapidOptions,
+        structuredOutput: structuredOutputOptions(options, rapidOptions),
         restartArgs: savedRestartArgs,
       })
     })
@@ -292,7 +328,55 @@ function makeServeArgs(action: 'run' | 'start', options: CliOptions): string[] {
   args.push('--max-file-size', String(numberOption(options.maxFileSize, 10 * 1024 * 1024)))
   args.push('--max-image-pixels', String(numberOption(options.maxImagePixels, 20_000_000)))
   args.push('--max-concurrency', String(numberOption(options.maxConcurrency, 1)))
+  const structuredModel = stringOption(options.structuredModel)
+  if (structuredModel)
+    args.push('--structured-model', structuredModel)
+  const structuredMaxNewTokens = numberOption(options.structuredMaxNewTokens, 0)
+  if (structuredMaxNewTokens > 0)
+    args.push('--structured-max-new-tokens', String(structuredMaxNewTokens))
   return args
+}
+
+async function readStructuredFields(value: string | undefined): Promise<OCRStructuredFields | undefined> {
+  if (value === undefined)
+    return undefined
+  const source = value.trim()
+  if (source.length === 0)
+    throw new TypeError('--structured-fields must be a JSON object or a path to a JSON file.')
+  let json: string
+  if (source.startsWith('{')) {
+    json = source
+  }
+  else {
+    json = await readFile(source, 'utf8')
+  }
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(json)
+  }
+  catch (error) {
+    throw new TypeError(`Could not parse structured field definitions as JSON: ${error instanceof Error ? error.message : String(error)}`, { cause: error })
+  }
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed))
+    throw new TypeError('Structured fields must be a JSON object mapping field names to descriptions.')
+  const fields = parsed as Record<string, unknown>
+  if (Object.keys(fields).length === 0)
+    throw new TypeError('Structured fields must contain at least one field.')
+  for (const [key, description] of Object.entries(fields)) {
+    if (key.trim().length === 0 || typeof description !== 'string' || description.trim().length === 0)
+      throw new TypeError('Structured field names and descriptions must be non-empty strings.')
+  }
+  return fields as OCRStructuredFields
+}
+
+function structuredOutputOptions(options: CliOptions, rapidOptions: RapidOCROptions): OCRTextStructurerOptions {
+  const modelId = stringOption(options.structuredModel)
+  const maxNewTokens = typeof options.structuredMaxNewTokens === 'number' ? options.structuredMaxNewTokens : undefined
+  return {
+    ...(modelId === undefined ? {} : { modelId }),
+    ...(maxNewTokens === undefined ? {} : { maxNewTokens }),
+    ...(rapidOptions.modelDirectory === undefined ? {} : { modelDirectory: rapidOptions.modelDirectory }),
+  }
 }
 
 function parseRestartArgs(value: string): string[] {

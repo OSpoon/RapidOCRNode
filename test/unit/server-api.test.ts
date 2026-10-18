@@ -25,6 +25,8 @@ describe('rapidOCR HTTP API', () => {
     const document = (await app.inject('/openapi.json')).json()
     expect(document.openapi).toBe('3.1.0')
     expect(document.paths['/v1/ocr'].post.operationId).toBe('recognizeImage')
+    expect(document.components.schemas.OcrOptions.properties.structured_fields).toMatchObject({ type: 'object', minProperties: 1 })
+    expect(document.components.schemas.OcrResult.properties.structured.$ref).toBe('#/components/schemas/StructuredResult')
     app.setRapidOcrReady(true)
     expect((await app.inject('/health/ready')).statusCode).toBe(200)
   })
@@ -77,6 +79,64 @@ describe('rapidOCR HTTP API', () => {
       elapse_list: [0.25, 0, 0],
       elapse: 0.25,
     })
+  })
+
+  it('extracts request-defined structured fields and includes the result in the OCR response', async () => {
+    const recognize = vi.fn(async () => ({
+      ...makeResult(),
+      lines: [{ text: '发票号码：12345678' }],
+    }))
+    const extract = vi.fn(async () => ({
+      values: { invoiceNumber: '12345678' },
+      evidence: { invoiceNumber: [0] },
+    }))
+    const close = vi.fn(async () => {})
+    const app = await createRapidOCRServer({
+      logger: false,
+      ocr: { recognize } as never,
+      structurer: { extract, close } as never,
+    })
+    openServers.push(app)
+    const upload = multipartImage({
+      file: sampleImage,
+      options: JSON.stringify({
+        include_image: false,
+        structured_fields: { invoiceNumber: '发票号码' },
+      }),
+    })
+
+    const response = await app.inject({ method: 'POST', url: '/v1/ocr', headers: upload.headers, payload: upload.payload })
+    expect(response.statusCode).toBe(200)
+    expect(response.json()).toMatchObject({
+      type: 'ocr',
+      img: null,
+      structured: {
+        values: { invoiceNumber: '12345678' },
+        evidence: { invoiceNumber: [0] },
+      },
+    })
+    expect(extract).toHaveBeenCalledWith([{ text: '发票号码：12345678' }], { invoiceNumber: '发票号码' })
+    await app.close()
+    openServers.splice(openServers.indexOf(app), 1)
+    expect(close).not.toHaveBeenCalled()
+  })
+
+  it('rejects invalid structured field definitions without calling the structurer', async () => {
+    const recognize = vi.fn(async () => makeResult())
+    const extract = vi.fn()
+    const app = await createRapidOCRServer({
+      logger: false,
+      ocr: { recognize } as never,
+      structurer: { extract, close: vi.fn() } as never,
+    })
+    openServers.push(app)
+    const upload = multipartImage({ file: sampleImage, options: JSON.stringify({ structured_fields: {} }) })
+
+    const response = await app.inject({ method: 'POST', url: '/v1/ocr', headers: upload.headers, payload: upload.payload })
+    expect(response.statusCode).toBe(400)
+    expect(response.json().code).toBe('invalid_option')
+    expect(recognize).not.toHaveBeenCalled()
+    expect(extract).not.toHaveBeenCalled()
   })
 
   it('returns problem details for malformed options, missing images, and non-multipart requests', async () => {

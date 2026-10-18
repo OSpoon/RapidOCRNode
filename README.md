@@ -256,6 +256,16 @@ npx rapidocr-node --help
 | **--output json\|markdown** | 选择 JSON 或 Markdown 输出 |
 | **--no-download** | 禁止自动下载缺失模型 |
 
+处理发票或收据时，可额外请求字段提取。先安装可选依赖，再把字段名和说明作为 JSON 传入；字段定义也可以放在 JSON 文件中：
+
+~~~sh
+npm install @huggingface/transformers
+npx rapidocr-node ./invoice.jpg \
+  --structured-fields '{"invoiceNumber":"发票号码","issueDate":"开票日期","totalAmount":"价税合计"}'
+~~~
+
+输出对象包含 `ocr` 和 `structured`：`structured.values` 给出字段值，无法从 OCR 文本核对的值为 `null`；`structured.evidence` 给出对应的 OCR 行索引。可用 `--structured-model` 选择文本模型，也可用 `--structured-max-new-tokens` 设置生成上限；默认不限制生成长度。普通识别不传 `--structured-fields` 时不会加载结构化模型。
+
 命令行的默认模型版本和规格写在配置文件中。`--ocr-version`、`--model-type` 与 `--task` 用于 `--list-langs` 查询；运行图片识别时，请通过配置文件选择各阶段的模型路由。
 
 `--no-det` 会把整张图片作为一个文本行送入后续阶段，适用于已裁切好的单行图片；`--no-rec` 则返回检测结果。
@@ -317,6 +327,24 @@ npx rapidocr-node --config ./rapidocr.yaml serve start \
   --max-concurrency 1
 ~~~
 
+需要在 HTTP 请求中启用字段提取时，服务也需要安装 `@huggingface/transformers`。可在启动时选择结构化模型；token 上限是可选的：
+
+~~~sh
+npx rapidocr-node serve start \
+  --structured-model onnx-community/Qwen3-0.6B-ONNX \
+  --structured-max-new-tokens 512
+~~~
+
+服务只在请求带有 `structured_fields` 时运行字段提取。字段由请求方按票据类型提供：
+
+~~~sh
+curl -X POST http://127.0.0.1:8000/v1/ocr \
+  -F 'file=@invoice.jpg' \
+  -F 'options={"include_image":false,"structured_fields":{"invoiceNumber":"发票号码","issueDate":"开票日期","totalAmount":"价税合计"}};type=application/json'
+~~~
+
+启用后，响应会额外包含 `structured.values` 和 `structured.evidence`。`values` 给出字段值，缺失或无法在 OCR 文本中核对的值为 `null`；`evidence` 给出支撑字段值的 OCR 行索引。未传 `structured_fields` 时，响应格式与普通 OCR 相同。
+
 上传大小默认上限为 10 MiB，解码后的图片默认最多 20,000,000 像素，并发 OCR 请求默认上限为 1。可通过 `--max-file-size`、`--max-image-pixels` 和 `--max-concurrency` 调整；图片字节数或像素数超限时返回 **413**，超出并发上限的请求收到 **429** 和 **Retry-After**。如果指定了 `--runtime-dir`，查询、重启和停止时也要指定相同目录。
 
 服务默认只监听本机，API 不提供身份验证。需要从其他机器访问时，请在受信网络中部署，并在反向代理或网络层配置访问控制。
@@ -361,6 +389,7 @@ curl -X POST http://127.0.0.1:8000/v1/ocr \
 | **return_word_boxes** | false | 返回中文逐字框和英文/数字词框 |
 | **return_single_char_boxes** | false | 将英文/数字词框拆为单字符框 |
 | **include_image** | true | 是否在响应中包含图像像素；设为 false 可减小响应 |
+| **structured_fields** | 不启用 | 按字段名映射说明，例如 `{"invoiceNumber":"发票号码"}`；建议用于发票和收据 |
 
 成功响应包含 **request_id**、**type**、**boxes**、**txts**、**scores**、**word_results**、**lang_rec** 和 **elapse_list** 等字段。**boxes[i]**、**txts[i]** 和 **scores[i]** 对应同一行结果；**elapse_list** 的阶段顺序为检测、分类、识别，单位为秒。默认的 **img.data** 是 base64 编码的 BGR 像素；设置 **include_image: false** 后 **img** 为 null。无文字时 **type** 为 **empty**。
 

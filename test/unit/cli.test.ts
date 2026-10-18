@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { runCli } from '../../src/cli.js'
 import { isMainModule } from '../../src/cli/is-main.js'
 import { RapidOCR } from '../../src/pipeline/rapidocr.js'
+import { OCRTextStructurer } from '../../src/pipeline/structured-output.js'
 
 describe('rapidocr node cli', () => {
   afterEach(() => vi.restoreAllMocks())
@@ -77,6 +78,14 @@ describe('rapidocr node cli', () => {
     await expect(runCli(['--engine', 'onnxruntime'])).rejects.toThrow('unknown option \'--engine\'')
   })
 
+  it('validates structured field options before initializing OCR models', async () => {
+    const create = vi.spyOn(RapidOCR, 'create')
+    await expect(runCli(['receipt.png', '--structured-fields', '{}'])).rejects.toThrow('Structured fields must contain at least one field.')
+    expect(create).not.toHaveBeenCalled()
+    await expect(runCli(['receipt.png', '--structured-max-new-tokens', '128'])).rejects.toThrow('--structured-model and --structured-max-new-tokens require --structured-fields.')
+    expect(create).not.toHaveBeenCalled()
+  })
+
   it('lists upstream model languages using Commander-parsed options without loading OCR models', async () => {
     const write = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
     await runCli(['--list_langs', '--task', 'rec', '--ocr_version', 'PP-OCRv5', '--model_type', 'mobile'])
@@ -110,6 +119,53 @@ describe('rapidocr node cli', () => {
     }))
     expect(instance.recognize).toHaveBeenCalledWith('receipt.png', { returnWordBoxes: true })
     expect(instance.close).toHaveBeenCalledOnce()
+  })
+
+  it('runs optional structured extraction and returns it alongside the OCR JSON', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'rapidocr-node-cli-structured-'))
+    const fieldsPath = join(directory, 'fields.json')
+    const write = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
+    const instance = {
+      close: vi.fn(async () => {}),
+      recognize: vi.fn(async () => ({
+        type: 'ocr',
+        lines: [{ text: '发票号码：12345678' }],
+        toJSON: () => ({ type: 'ocr', txts: ['发票号码：12345678'] }),
+      })),
+    }
+    const create = vi.spyOn(RapidOCR, 'create').mockResolvedValue(instance as unknown as Awaited<ReturnType<typeof RapidOCR.create>>)
+    const extract = vi.spyOn(OCRTextStructurer.prototype, 'extract').mockImplementation(async () => ({
+      values: { invoiceNumber: '12345678' },
+      evidence: { invoiceNumber: [0] },
+    } as never))
+    const closeStructurer = vi.spyOn(OCRTextStructurer.prototype, 'close').mockResolvedValue()
+    try {
+      await writeFile(fieldsPath, JSON.stringify({ invoiceNumber: '发票号码' }))
+      await runCli([
+        './invoice.png',
+        '--model-dir',
+        directory,
+        '--structured-fields',
+        fieldsPath,
+        '--structured-model',
+        'example/receipt-model',
+        '--structured-max-new-tokens',
+        '512',
+      ])
+
+      const output = JSON.parse(write.mock.calls.map(([chunk]) => String(chunk)).join(''))
+      expect(output).toMatchObject({
+        ocr: { type: 'ocr', txts: ['发票号码：12345678'] },
+        structured: { values: { invoiceNumber: '12345678' }, evidence: { invoiceNumber: [0] } },
+      })
+      expect(extract).toHaveBeenCalledWith([{ text: '发票号码：12345678' }], { invoiceNumber: '发票号码' })
+      expect(closeStructurer).toHaveBeenCalledOnce()
+      expect(instance.close).toHaveBeenCalledOnce()
+      expect(create).toHaveBeenCalledWith(expect.objectContaining({ modelDirectory: directory }))
+    }
+    finally {
+      await rm(directory, { force: true, recursive: true })
+    }
   })
 
   it('accepts upstream multi-character aliases and names word-box visualizations like upstream', async () => {

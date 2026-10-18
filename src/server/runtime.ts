@@ -1,4 +1,5 @@
 import type { Server } from 'node:net'
+import type { OCRTextStructurerOptions } from '../pipeline/structured-output.js'
 import type { RapidOCROptions } from '../shared/types.js'
 import { Buffer } from 'node:buffer'
 import { spawn } from 'node:child_process'
@@ -46,6 +47,7 @@ export interface ServerRuntimeOptions {
   maxImagePixels: number
   runtimeDir: string
   rapidOptions: RapidOCROptions
+  structuredOutput?: OCRTextStructurerOptions
   restartArgs: string[]
 }
 
@@ -184,6 +186,8 @@ export async function runServer(options: ServerRuntimeOptions): Promise<void> {
       maxConcurrency: options.maxConcurrency,
       maxFileSize: options.maxFileSize,
       maxImagePixels: options.maxImagePixels,
+      rapidOptions: options.rapidOptions,
+      structuredOutput: options.structuredOutput,
       ocr,
     })
     const address = await app.listen({ host: options.host, port: options.port })
