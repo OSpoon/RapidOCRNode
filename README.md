@@ -1,10 +1,13 @@
-# RapidOCR Node
-
-面向 Node.js 的 RapidOCR 实现，按 [RapidOCR](https://github.com/RapidAI/RapidOCR) 的流程执行 OCR。推理由 [ONNX Runtime Node](https://github.com/microsoft/onnxruntime) 提供。可在本机处理图片，也可作为命令行工具或 HTTP 服务使用。
-
-[![CI](https://github.com/OSpoon/RapidOCRNode/actions/workflows/ci.yml/badge.svg)](https://github.com/OSpoon/RapidOCRNode/actions/workflows/ci.yml)
-[![npm](https://img.shields.io/npm/v/rapidocr-node)](https://www.npmjs.com/package/rapidocr-node)
-[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)](./LICENSE.md)
+<div align="center">
+  <h1>RapidOCR Node</h1>
+  <p>面向 Node.js 的 RapidOCR 实现，按 <a href="https://github.com/RapidAI/RapidOCR">RapidOCR</a> 流程执行 OCR，推理由 <a href="https://github.com/microsoft/onnxruntime">ONNX Runtime Node</a> 提供。</p>
+  <p>支持 JavaScript API、命令行和 HTTP 服务。</p>
+  <p>
+    <a href="https://github.com/OSpoon/RapidOCRNode/actions/workflows/ci.yml"><img src="https://github.com/OSpoon/RapidOCRNode/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+    <a href="https://www.npmjs.com/package/rapidocr-node"><img src="https://img.shields.io/npm/v/rapidocr-node" alt="npm version"></a>
+    <a href="./LICENSE.md"><img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="License: Apache-2.0"></a>
+  </p>
+</div>
 
 ## 选择使用方式
 
@@ -425,17 +428,25 @@ ONNX Runtime 的 CPU 执行提供程序默认启用。JavaScript API 可通过 *
 完整 OCR 的主要步骤如下。方向分类默认启用，可按需关闭。
 
 ~~~mermaid
-flowchart TD
-  A[Node.js 程序、CLI 或 HTTP 请求] --> B[图片输入]
-  B --> C[解码与预处理]
-  C --> D[文本检测]
-  D --> E[文本行裁切与排序]
-  E --> F{启用方向分类？}
-  F -- 是 --> G[判断方向，必要时旋转]
-  F -- 否 --> H[文字识别]
-  G --> H
-  H --> I[文本、分数、坐标与阶段耗时]
+flowchart LR
+  A[接收请求<br/>JavaScript API / CLI / HTTP] --> B[图片解码与预处理]
+  B --> C[文本检测模型]
+  C --> D[文本区域裁切与排序]
+  D --> E{启用方向分类？}
+  E -- 是 --> F[方向分类模型<br/>判断方向，必要时旋转]
+  E -- 否 --> G[文字识别模型]
+  F --> G
+  G --> H[整理并返回结果<br/>文本、分数、坐标与阶段耗时]
+
+  classDef model fill:#eef2ff,stroke:#4f46e5,stroke-width:2px,color:#111827
+  classDef process fill:#f8fafc,stroke:#64748b,color:#111827
+  classDef decision fill:#fff7ed,stroke:#ea580c,color:#111827
+  class A,B,D,H process
+  class C,F,G model
+  class E decision
 ~~~
+
+蓝紫色节点表示模型推理，浅灰色节点表示普通处理，橙色节点表示分支判断。方向分类默认启用，可按需关闭。
 
 ## 开发和验证
 
@@ -450,4 +461,10 @@ pnpm run test:models
 
 ## 许可
 
-本项目代码按 Apache-2.0 许可发布。RapidOCR 上游代码、模型、字典、字体和测试图片分别保留其上游许可与归属信息；详见 [`NOTICE.md`](./NOTICE.md) 和 [`MODEL-LICENSES.md`](./MODEL-LICENSES.md)。本项目不是 RapidOCR 官方发行版。
+### 项目代码
+
+本项目代码按 Apache-2.0 许可发布，详见 [`LICENSE.md`](./LICENSE.md)。
+
+### 模型与上游资源
+
+RapidOCR 上游代码、模型、字典、字体和测试图片分别保留其上游许可与归属信息。模型来源、校验值和许可见 [`MODEL-LICENSES.md`](./MODEL-LICENSES.md)，其他归属说明见 [`NOTICE.md`](./NOTICE.md)。本项目不是 RapidOCR 官方发行版。
