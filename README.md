@@ -123,7 +123,7 @@ console.log(detection.type, detection.boxes)
 
 处理发票、收据时，可以在 OCR 后按需要提取字段。普通文档识别直接使用 `recognize()` 即可。
 
-安装可选依赖：
+在调用 `rapidocr-node` 的应用项目目录中安装可选依赖：
 
 ~~~sh
 npm install @huggingface/transformers
@@ -256,13 +256,24 @@ npx rapidocr-node --help
 | **--output json\|markdown** | 选择 JSON 或 Markdown 输出 |
 | **--no-download** | 禁止自动下载缺失模型 |
 
-处理发票或收据时，可额外请求字段提取。先安装可选依赖，再把字段名和说明作为 JSON 传入；字段定义也可以放在 JSON 文件中：
+处理发票或收据时，可额外请求字段提取。字段名和说明可用 JSON 传入，也可以放在 JSON 文件中。若使用 `npx` 临时运行，RapidOCR Node 和结构化模型依赖都要放进这次 `npx` 环境：
 
 ~~~sh
-npm install @huggingface/transformers
-npx rapidocr-node ./invoice.jpg \
+npx --yes \
+  --package=rapidocr-node@latest \
+  --package=@huggingface/transformers \
+  rapidocr-node ./invoice.jpg \
   --structured-fields '{"invoiceNumber":"发票号码","issueDate":"开票日期","totalAmount":"价税合计"}'
 ~~~
+
+如果使用全局 CLI，请把两个包都全局安装，然后运行全局命令：
+
+~~~sh
+npm install -g rapidocr-node@latest @huggingface/transformers
+rapidocr-node ./invoice.jpg --structured-fields '{"invoiceNumber":"发票号码"}'
+~~~
+
+`npx` 会在临时包环境中运行 CLI，因此单独全局安装 `@huggingface/transformers` 不会让它对 `npx rapidocr-node@latest` 可见。请使用上面的双 `--package` 命令，或全局安装两个包后直接运行全局 `rapidocr-node` 命令。
 
 输出对象包含 `ocr` 和 `structured`：`structured.values` 给出字段值，无法从 OCR 文本核对的值为 `null`；`structured.evidence` 给出对应的 OCR 行索引。可用 `--structured-model` 选择文本模型，也可用 `--structured-max-new-tokens` 设置生成上限；默认不限制生成长度。普通识别不传 `--structured-fields` 时不会加载结构化模型。
 
@@ -327,10 +338,18 @@ npx rapidocr-node --config ./rapidocr.yaml serve start \
   --max-concurrency 1
 ~~~
 
-需要在 HTTP 请求中启用字段提取时，服务也需要安装 `@huggingface/transformers`。可在启动时选择结构化模型；token 上限是可选的：
+需要在 HTTP 请求中启用字段提取时，运行服务的同一 npm 环境也需要安装 `@huggingface/transformers`。如果通过 `npx` 临时启动，请同时指定两个包；如果全局安装，则使用全局 `rapidocr-node` 命令。可在启动时选择结构化模型；token 上限是可选的：
 
 ~~~sh
-npx rapidocr-node serve start \
+npx --yes \
+  --package=rapidocr-node@latest \
+  --package=@huggingface/transformers \
+  rapidocr-node serve start \
+  --structured-model onnx-community/Qwen3-0.6B-ONNX \
+  --structured-max-new-tokens 512
+
+# 如果两个包都全局安装，则直接使用全局 CLI
+rapidocr-node serve start \
   --structured-model onnx-community/Qwen3-0.6B-ONNX \
   --structured-max-new-tokens 512
 ~~~
