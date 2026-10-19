@@ -1,4 +1,4 @@
-import type { ExecutionProviderConfig, RapidOCROptions } from '../shared/types.js'
+import type { ExecutionProviderConfig, ExecutionProviderSelection, RapidOCROptions } from '../shared/types.js'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import { parse, stringify } from 'yaml'
@@ -297,7 +297,7 @@ function assignModelSelection(
   }
 }
 
-function getProviders(engine: ConfigRecord): ExecutionProviderConfig[] {
+function getProviders(engine: ConfigRecord): ExecutionProviderSelection {
   const providers: ExecutionProviderConfig[] = []
   if (optionalBoolean(engine, 'use_cuda')) {
     const deviceId = getDeviceId(readSection(engine, 'cuda_ep_cfg'), 'device_id')
@@ -310,6 +310,8 @@ function getProviders(engine: ConfigRecord): ExecutionProviderConfig[] {
   if (optionalBoolean(engine, 'use_coreml')) {
     providers.unshift({ name: 'coreml', coreMlFlags: getCoreMlFlags(readSection(engine, 'coreml_ep_cfg')) })
   }
+  if (providers.length === 0)
+    return 'auto'
   providers.push('cpu')
   return providers
 }

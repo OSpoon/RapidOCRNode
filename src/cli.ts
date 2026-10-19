@@ -91,8 +91,8 @@ async function runCommand(command: CliCommand, positionalImage: string | undefin
     throw new TypeError('Provide an image path or URL.')
 
   const structuredFields = await readStructuredFields(stringOption(options.structuredFields))
-  if (structuredFields === undefined && (options.structuredModel !== undefined || options.structuredMaxNewTokens !== undefined))
-    throw new TypeError('--structured-model and --structured-max-new-tokens require --structured-fields.')
+  if (structuredFields === undefined && (options.structuredModel !== undefined || options.structuredMaxNewTokens !== undefined || options.structuredDevice !== undefined))
+    throw new TypeError('--structured-model, --structured-device, and --structured-max-new-tokens require --structured-fields.')
   if (structuredFields !== undefined && options.output === 'markdown')
     throw new TypeError('Structured extraction requires --output json.')
 
@@ -185,6 +185,7 @@ function createCli(): Command {
     .option('--model-dir <path>', 'Model and font cache directory')
     .option('--structured-fields <json-or-path>', 'Extract fields using a JSON object or a JSON file (invoice and receipt use)')
     .option('--structured-model <id-or-path>', 'Text model for structured extraction')
+    .addOption(new Option('--structured-device <device>', 'Execution device for structured extraction (default: auto)').choices(['auto', 'cpu', 'coreml', 'webgpu', 'cuda', 'dml']))
     .option('--structured-max-new-tokens <count>', 'Optional generation token limit for structured extraction', parsePositiveInteger)
     .option('--no-download', 'Disable automatic model downloads (enabled by default)')
     .option('--list_langs, --list-langs', 'List languages supported by a task model')
@@ -230,6 +231,7 @@ function createCli(): Command {
     .option('--max-image-pixels <pixels>', 'Maximum decoded image pixel count', parsePositiveInteger, 20_000_000)
     .option('--max-concurrency <count>', 'Maximum concurrent OCR requests', parsePositiveInteger, 1)
     .option('--structured-model <id-or-path>', 'Text model for optional invoice/receipt field extraction')
+    .addOption(new Option('--structured-device <device>', 'Execution device for structured extraction (default: auto)').choices(['auto', 'cpu', 'coreml', 'webgpu', 'cuda', 'dml']))
     .option('--structured-max-new-tokens <count>', 'Optional generation token limit for structured extraction', parsePositiveInteger)
 
   serverOptions(serve.command('run'))
@@ -331,6 +333,9 @@ function makeServeArgs(action: 'run' | 'start', options: CliOptions): string[] {
   const structuredModel = stringOption(options.structuredModel)
   if (structuredModel)
     args.push('--structured-model', structuredModel)
+  const structuredDevice = stringOption(options.structuredDevice)
+  if (structuredDevice)
+    args.push('--structured-device', structuredDevice)
   const structuredMaxNewTokens = numberOption(options.structuredMaxNewTokens, 0)
   if (structuredMaxNewTokens > 0)
     args.push('--structured-max-new-tokens', String(structuredMaxNewTokens))
@@ -371,9 +376,11 @@ async function readStructuredFields(value: string | undefined): Promise<OCRStruc
 
 function structuredOutputOptions(options: CliOptions, rapidOptions: RapidOCROptions): OCRTextStructurerOptions {
   const modelId = stringOption(options.structuredModel)
+  const device = stringOption(options.structuredDevice) as OCRTextStructurerOptions['device'] | undefined
   const maxNewTokens = typeof options.structuredMaxNewTokens === 'number' ? options.structuredMaxNewTokens : undefined
   return {
     ...(modelId === undefined ? {} : { modelId }),
+    ...(device === undefined ? {} : { device }),
     ...(maxNewTokens === undefined ? {} : { maxNewTokens }),
     ...(rapidOptions.modelDirectory === undefined ? {} : { modelDirectory: rapidOptions.modelDirectory }),
   }

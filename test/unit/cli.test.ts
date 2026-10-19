@@ -82,7 +82,7 @@ describe('rapidocr node cli', () => {
     const create = vi.spyOn(RapidOCR, 'create')
     await expect(runCli(['receipt.png', '--structured-fields', '{}'])).rejects.toThrow('Structured fields must contain at least one field.')
     expect(create).not.toHaveBeenCalled()
-    await expect(runCli(['receipt.png', '--structured-max-new-tokens', '128'])).rejects.toThrow('--structured-model and --structured-max-new-tokens require --structured-fields.')
+    await expect(runCli(['receipt.png', '--structured-max-new-tokens', '128'])).rejects.toThrow('--structured-model, --structured-device, and --structured-max-new-tokens require --structured-fields.')
     expect(create).not.toHaveBeenCalled()
   })
 

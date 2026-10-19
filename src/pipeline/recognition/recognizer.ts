@@ -86,7 +86,7 @@ export class TextRecognizer {
       && (!Number.isInteger(options.interOpNumThreads) || options.interOpNumThreads < 1)) {
       throw new RangeError('interOpNumThreads must be a positive integer.')
     }
-    if (options.executionProviders !== undefined && options.executionProviders.length === 0) {
+    if (options.executionProviders !== undefined && options.executionProviders !== 'auto' && options.executionProviders.length === 0) {
       throw new RangeError('executionProviders must contain at least one provider.')
     }
     if (options.session !== undefined
@@ -121,7 +121,7 @@ export class TextRecognizer {
     const characters = readDictionary(dictionaryContents)
     const ownsSession = options.session === undefined
     const session = options.session ?? await createInferenceSession(recognitionModelPath!, {
-      executionProviders: options.executionProviders ?? ['cpu'],
+      executionProviders: options.executionProviders ?? 'auto',
       ...(options.intraOpNumThreads === undefined
         ? {}
         : { intraOpNumThreads: options.intraOpNumThreads }),

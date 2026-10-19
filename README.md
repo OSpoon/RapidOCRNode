@@ -36,7 +36,7 @@
 npm install rapidocr-node
 ~~~
 
-npm 安装不会下载模型。第一次处理图片时，程序会按所选路由检查模型和识别字典；缺少的文件会下载、校验 SHA-256 并缓存。默认缓存目录按操作系统选择。可通过 JavaScript 的 `modelDirectory` 或环境变量 `RAPIDOCR_MODEL_DIR` 指定目录；CLI 使用 `--model-dir`。
+模型按需下载并缓存。可通过 `modelDirectory`、`RAPIDOCR_MODEL_DIR` 或 CLI 的 `--model-dir` 指定缓存目录。
 
 也可以提前下载模型：
 
@@ -245,21 +245,9 @@ npx rapidocr-node --list-langs --task rec --ocr-version PP-OCRv5 --model-type mo
 npx rapidocr-node --help
 ~~~
 
-常用图片选项：
+运行 `npx rapidocr-node --help` 查看图片识别选项。
 
-| 选项 | 作用 |
-| --- | --- |
-| **--config** | 读取 YAML/JSON 配置；可设置模型版本、规格、阶段和推理参数 |
-| **--model-dir** | 指定模型缓存目录 |
-| **--lang** | 覆盖配置中的识别语言 |
-| **--text-score** | 设置输出文字的最低置信度 |
-| **--word-boxes** | 返回中文逐字框和英文/数字词框 |
-| **--no-det**、**--no-cls**、**--no-rec** | 关闭检测、方向分类或识别阶段 |
-| **--vis [路径]** | 保存可视化图片；省略路径时使用默认文件名 |
-| **--output json\|markdown** | 选择 JSON 或 Markdown 输出 |
-| **--no-download** | 禁止自动下载缺失模型 |
-
-处理发票或收据时，可额外请求字段提取。字段名和说明可用 JSON 传入，也可以放在 JSON 文件中。若使用 `npx` 临时运行，RapidOCR Node 和结构化模型依赖都要放进这次 `npx` 环境：
+处理发票或收据时，可选用结构化提取。使用 `npx` 时需同时提供两个依赖：
 
 ~~~sh
 npx --yes \
@@ -269,20 +257,16 @@ npx --yes \
   --structured-fields '{"invoiceNumber":"发票号码","issueDate":"开票日期","totalAmount":"价税合计"}'
 ~~~
 
-如果使用全局 CLI，请把两个包都全局安装，然后运行全局命令：
+全局安装方式：
 
 ~~~sh
 npm install -g rapidocr-node@latest @huggingface/transformers
 rapidocr-node ./invoice.jpg --structured-fields '{"invoiceNumber":"发票号码"}'
 ~~~
 
-`npx` 会在临时包环境中运行 CLI，因此单独全局安装 `@huggingface/transformers` 不会让它对 `npx rapidocr-node@latest` 可见。请使用上面的双 `--package` 命令，或全局安装两个包后直接运行全局 `rapidocr-node` 命令。
+结构化提取默认使用 `auto`，传入 `--structured-fields` 时按需加载模型；其他选项见 `--help`。
 
-输出对象包含 `ocr` 和 `structured`：`structured.values` 给出字段值，无法从 OCR 文本核对的值为 `null`；`structured.evidence` 给出对应的 OCR 行索引。可用 `--structured-model` 选择文本模型，也可用 `--structured-max-new-tokens` 设置生成上限；默认不限制生成长度。普通识别不传 `--structured-fields` 时不会加载结构化模型。
-
-命令行的默认模型版本和规格写在配置文件中。`--ocr-version`、`--model-type` 与 `--task` 用于 `--list-langs` 查询；运行图片识别时，请通过配置文件选择各阶段的模型路由。
-
-`--no-det` 会把整张图片作为一个文本行送入后续阶段，适用于已裁切好的单行图片；`--no-rec` 则返回检测结果。
+模型版本和规格通过配置文件选择；可用路由通过 `--list-langs` 查询。
 
 生成配置后，编辑 `Det`、`Cls`、`Rec` 下的 `ocr_version`、`lang_type` 和 `model_type`。下面只列出模型路由字段，其他参数继续使用默认值：
 
@@ -341,7 +325,7 @@ npx rapidocr-node --config ./rapidocr.yaml serve start \
   --max-concurrency 1
 ~~~
 
-需要在 HTTP 请求中启用字段提取时，运行服务的同一 npm 环境也需要安装 `@huggingface/transformers`。如果通过 `npx` 临时启动，请同时指定两个包；如果全局安装，则使用全局 `rapidocr-node` 命令。可在启动时选择结构化模型；token 上限是可选的：
+启用结构化提取时，服务环境需安装 `@huggingface/transformers`。可在启动时设置模型、设备和 token 上限：
 
 ~~~sh
 npx --yes \
@@ -349,15 +333,17 @@ npx --yes \
   --package=@huggingface/transformers \
   rapidocr-node serve start \
   --structured-model onnx-community/Qwen3-0.6B-ONNX \
+  --structured-device auto \
   --structured-max-new-tokens 512
 
 # 如果两个包都全局安装，则直接使用全局 CLI
 rapidocr-node serve start \
   --structured-model onnx-community/Qwen3-0.6B-ONNX \
+  --structured-device auto \
   --structured-max-new-tokens 512
 ~~~
 
-服务只在请求带有 `structured_fields` 时运行字段提取。字段由请求方按票据类型提供：
+请求带有 `structured_fields` 时会运行字段提取：
 
 ~~~sh
 curl -X POST http://127.0.0.1:8000/v1/ocr \
@@ -365,11 +351,11 @@ curl -X POST http://127.0.0.1:8000/v1/ocr \
   -F 'options={"include_image":false,"structured_fields":{"invoiceNumber":"发票号码","issueDate":"开票日期","totalAmount":"价税合计"}};type=application/json'
 ~~~
 
-启用后，响应会额外包含 `structured.values` 和 `structured.evidence`。`values` 给出字段值，缺失或无法在 OCR 文本中核对的值为 `null`；`evidence` 给出支撑字段值的 OCR 行索引。未传 `structured_fields` 时，响应格式与普通 OCR 相同。
+OCR 与结构化结果及耗时均包含在响应中；完整请求和响应定义见 `/openapi.json`。
 
-上传大小默认上限为 10 MiB，解码后的图片默认最多 20,000,000 像素，并发 OCR 请求默认上限为 1。可通过 `--max-file-size`、`--max-image-pixels` 和 `--max-concurrency` 调整；图片字节数或像素数超限时返回 **413**，超出并发上限的请求收到 **429** 和 **Retry-After**。如果指定了 `--runtime-dir`，查询、重启和停止时也要指定相同目录。
+默认限制为 10 MiB、20 MP 和 1 个并发请求，可用 `--max-file-size`、`--max-image-pixels` 和 `--max-concurrency` 调整。
 
-服务默认只监听本机，API 不提供身份验证。需要从其他机器访问时，请在受信网络中部署，并在反向代理或网络层配置访问控制。
+服务默认仅监听本机且无身份验证；远程访问请在反向代理设置访问控制。
 
 ### 端点
 
@@ -380,48 +366,39 @@ curl -X POST http://127.0.0.1:8000/v1/ocr \
 | GET | **/openapi.json** | 获取 OpenAPI 3.1 描述 |
 | POST | **/v1/ocr** | 上传图片并执行完整 OCR |
 
-`POST /v1/ocr` 使用 `multipart/form-data`：
+`POST /v1/ocr` 使用 `multipart/form-data` 上传图片。
 
-- **file**：必填，图片文件。
-- **options**：可选，包含 OCR 参数的 JSON 字符串。
-
-最小请求（不在响应中包含源图像数据）：
-
-~~~sh
-curl -X POST http://127.0.0.1:8000/v1/ocr \
-  -F 'file=@receipt.jpg' \
-  -F 'options={"include_image":false};type=application/json'
-~~~
-
-带选项的请求：
-
-~~~sh
-curl -X POST http://127.0.0.1:8000/v1/ocr \
-  -F 'file=@receipt.jpg' \
-  -F 'options={"return_word_boxes":true,"include_image":false};type=application/json'
-~~~
-
-支持的请求选项：
-
-| 选项 | 默认值 | 作用 |
-| --- | --- | --- |
-| **box_threshold** | 使用模型配置 | 文本框置信度阈值，范围 0 到 1 |
-| **unclip_ratio** | 使用模型配置 | 扩展文本框的比例，必须大于或等于 0 |
-| **text_score_threshold** | 使用模型配置 | 识别结果最低置信度，范围 0 到 1 |
-| **return_word_boxes** | false | 返回中文逐字框和英文/数字词框 |
-| **return_single_char_boxes** | false | 将英文/数字词框拆为单字符框 |
-| **include_image** | true | 是否在响应中包含图像像素；设为 false 可减小响应 |
-| **structured_fields** | 不启用 | 按字段名映射说明，例如 `{"invoiceNumber":"发票号码"}`；建议用于发票和收据 |
-
-成功响应包含 **request_id**、**type**、**boxes**、**txts**、**scores**、**word_results**、**lang_rec** 和 **elapse_list** 等字段。**boxes[i]**、**txts[i]** 和 **scores[i]** 对应同一行结果；**elapse_list** 的阶段顺序为检测、分类、识别，单位为秒。默认的 **img.data** 是 base64 编码的 BGR 像素；设置 **include_image: false** 后 **img** 为 null。无文字时 **type** 为 **empty**。
-
-错误使用 Problem Details JSON 格式，包含错误码和请求 ID。常见状态码有 400（请求参数无效）、413（上传超限）、415（媒体类型不支持）、422（图片无法解码）、429（并发已满）和 503（模型未就绪）。服务只接受上传的图片文件，不接受客户端传来的本地路径或图片 URL。
+错误采用 Problem Details 格式；服务只接受图片文件，不接受本地路径或图片 URL。
 
 ## 模型和执行后端
 
-模型路由对应 RapidOCR v3.10.0 的 **default_models.yaml**，包括上游登记的 PP-OCRv4、PP-OCRv5 和 PP-OCRv6 ONNX 检测、分类与识别模型。各阶段可单独选择版本、语言和规格；并非每种组合都受支持，可用路由通过 **listSupportedLanguages()** 查询。
+模型路由与 RapidOCR v3.10.0 对齐，支持 PP-OCRv4、PP-OCRv5 和 PP-OCRv6；可用路由见 **listSupportedLanguages()**。
 
-ONNX Runtime 的 CPU 执行提供程序默认启用。JavaScript API 可通过 **executionProviders** 设置执行提供程序及优先级；按阶段配置时可分别使用 **detectionExecutionProviders**、**classifierExecutionProviders** 和 **recognitionExecutionProviders**。实际可用项取决于安装的 ONNX Runtime 构建、操作系统和硬件。
+OCR 默认使用 **auto** 后端，按平台选择可用加速器并回退到 CPU。可通过 **executionProviders** 或分阶段配置固定后端。
+结构化提取的 **auto** 按平台尝试加速设备；模型加载或推理失败时切换到下一后端。
+
+### 本地速度对照
+
+macOS · Node 24.15.0 · ONNX Runtime 1.30.0 · `test.png`（1588×1060）· 模型已缓存。
+
+OCR 使用 PP-OCRv6 small 检测/识别和 PP-OCRv4 mobile 分类，热运行 12 次：
+
+| 执行后端 | 端到端耗时 P50 / P95 | 识别结果 |
+| --- | ---: | --- |
+| CPU | 1.756 / 1.807 秒 | 43 行，基准 |
+| CoreML | 3.429 / 3.934 秒 | 39 行，文本有差异 |
+| WebGPU | 1.109 / 1.147 秒 | 43 行，文本一致 |
+
+结构化提取使用 Qwen3-0.6B Q4F16（Transformers.js 4.3.1），从同一张图片提取 3 个字段；模型已缓存，每个设备测 1 次首次调用和 5 次热运行。
+
+| 结构化设备 | 首次总耗时（模型加载） | 热运行总耗时 P50 / P95 |
+| --- | ---: | ---: |
+| auto | 3.30 秒（1.20 秒） | 1.95 / 1.98 秒 |
+| CPU | 9.31 秒（0.73 秒） | 10.44 / 10.65 秒 |
+| CoreML | 12.11 秒（0.97 秒） | 9.65 / 10.53 秒 |
+| WebGPU | 3.70 秒（1.41 秒） | 2.11 / 2.14 秒 |
+
+本次 3 个字段结果一致。手动指定设备：API 用 `new OCRTextStructurer({ device: 'webgpu' })`，CLI 或 HTTP 服务启动时用 `--structured-device webgpu`。
 
 ## 工作流程
 

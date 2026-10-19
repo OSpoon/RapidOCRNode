@@ -506,7 +506,7 @@ function openApiDocument(maxFileSize: number, maxImagePixels: number): Record<st
         },
         StructuredResult: {
           type: 'object',
-          required: ['values', 'evidence'],
+          required: ['values', 'evidence', 'timings'],
           properties: {
             values: {
               type: 'object',
@@ -517,6 +517,17 @@ function openApiDocument(maxFileSize: number, maxImagePixels: number): Record<st
               additionalProperties: { type: 'array', items: { type: 'integer', minimum: 0 } },
               description: 'OCR line indexes supporting each extracted value.',
             },
+            timings: { $ref: '#/components/schemas/StructuredTimings' },
+          },
+        },
+        StructuredTimings: {
+          type: 'object',
+          required: ['queue', 'modelLoad', 'generation', 'total'],
+          properties: {
+            queue: { type: 'number', minimum: 0, description: 'Seconds spent waiting behind earlier extraction calls.' },
+            modelLoad: { type: 'number', minimum: 0, description: 'Seconds spent lazily importing Transformers.js and loading the model; zero after initialization.' },
+            generation: { type: 'number', minimum: 0, description: 'Seconds spent tokenizing the prompt and generating the response.' },
+            total: { type: 'number', minimum: 0, description: 'Seconds from extract() start to parsed result, including queue wait.' },
           },
         },
         ProblemDetail: {

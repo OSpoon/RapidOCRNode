@@ -1,3 +1,4 @@
+import { arch, platform } from 'node:os'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { getModelDirectory } from '../../src/models/download.js'
@@ -41,15 +42,21 @@ describe('ocr text structurer', () => {
     expect(pipelineMock).not.toHaveBeenCalled()
     const result = await structurer.extract(lines, fields)
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       evidence: { invoiceNumber: [0], totalAmount: [] },
       values: { invoiceNumber: 'INV-001', totalAmount: null },
+      timings: {
+        queue: expect.any(Number),
+        modelLoad: expect.any(Number),
+        generation: expect.any(Number),
+        total: expect.any(Number),
+      },
     })
     expect(pipelineMock).toHaveBeenCalledWith(
       'text-generation',
       'onnx-community/Qwen3-0.6B-ONNX',
       expect.objectContaining({
-        device: 'cpu',
+        device: expectedAutoDevices()[0],
         dtype: 'q4f16',
         cache_dir: getModelDirectory(),
       }),
@@ -67,6 +74,7 @@ describe('ocr text structurer', () => {
   it('uses a caller-selected model and token limit', async () => {
     const structurer = new OCRTextStructurer({
       modelId: 'local/receipt-model',
+      device: 'cpu',
       maxNewTokens: 1024,
       modelDirectory: './test-models',
     })
@@ -88,6 +96,64 @@ describe('ocr text structurer', () => {
     await structurer.close()
   })
 
+  it('falls back to the next platform device when auto initialization fails', async () => {
+    const devices = expectedAutoDevices()
+    pipelineMock
+      .mockRejectedValueOnce(new Error(`${devices[0]} is unavailable`))
+      .mockResolvedValueOnce(Object.assign(generatorMock, { dispose: disposeMock }))
+    const structurer = new OCRTextStructurer()
+
+    await expect(structurer.extract([{ text: '发票号码 INV-001' }], { invoiceNumber: '发票号码' }))
+      .resolves
+      .toMatchObject({ values: { invoiceNumber: 'INV-001' } })
+
+    expect(pipelineMock).toHaveBeenNthCalledWith(
+      1,
+      'text-generation',
+      'onnx-community/Qwen3-0.6B-ONNX',
+      expect.objectContaining({ device: devices[0] }),
+    )
+    expect(pipelineMock).toHaveBeenNthCalledWith(
+      2,
+      'text-generation',
+      'onnx-community/Qwen3-0.6B-ONNX',
+      expect.objectContaining({ device: devices[1] }),
+    )
+    await structurer.close()
+  })
+
+  it('falls back when auto device initialization succeeds but inference fails', async () => {
+    const devices = expectedAutoDevices()
+    const firstDispose = vi.fn()
+    const firstGenerator = vi.fn().mockRejectedValue(new Error(`${devices[0]} inference failed`))
+    const fallbackGenerator = vi.fn().mockResolvedValue(makeResponse({ invoiceNumber: 'INV-001' }))
+    const fallbackDispose = vi.fn()
+    pipelineMock
+      .mockResolvedValueOnce(Object.assign(firstGenerator, { dispose: firstDispose }))
+      .mockResolvedValueOnce(Object.assign(fallbackGenerator, { dispose: fallbackDispose }))
+    const structurer = new OCRTextStructurer()
+
+    await expect(structurer.extract([{ text: '发票号码 INV-001' }], { invoiceNumber: '发票号码' }))
+      .resolves
+      .toMatchObject({ values: { invoiceNumber: 'INV-001' } })
+
+    expect(pipelineMock).toHaveBeenNthCalledWith(
+      1,
+      'text-generation',
+      'onnx-community/Qwen3-0.6B-ONNX',
+      expect.objectContaining({ device: devices[0] }),
+    )
+    expect(pipelineMock).toHaveBeenNthCalledWith(
+      2,
+      'text-generation',
+      'onnx-community/Qwen3-0.6B-ONNX',
+      expect.objectContaining({ device: devices[1] }),
+    )
+    expect(firstDispose).toHaveBeenCalledOnce()
+    await structurer.close()
+    expect(fallbackDispose).toHaveBeenCalledOnce()
+  })
+
   it('skips model loading when OCR contains no non-empty lines', async () => {
     const structurer = new OCRTextStructurer()
     const result = await structurer.extract([{ text: ' ' }, { text: '' }], {
@@ -95,9 +161,15 @@ describe('ocr text structurer', () => {
       totalAmount: '价税合计',
     })
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       evidence: { invoiceNumber: [], totalAmount: [] },
       values: { invoiceNumber: null, totalAmount: null },
+      timings: {
+        queue: expect.any(Number),
+        modelLoad: 0,
+        generation: 0,
+        total: expect.any(Number),
+      },
     })
     expect(pipelineMock).not.toHaveBeenCalled()
     await structurer.close()
@@ -158,4 +230,17 @@ function makeResponseText(content: string): unknown[] {
       { role: 'assistant', content },
     ],
   }]
+}
+
+function expectedAutoDevices(): string[] {
+  switch (platform()) {
+    case 'darwin':
+      return ['webgpu', 'coreml', 'cpu']
+    case 'win32':
+      return ['dml', 'webgpu', 'cpu']
+    case 'linux':
+      return arch() === 'x64' ? ['cuda', 'webgpu', 'cpu'] : ['webgpu', 'cpu']
+    default:
+      return ['cpu']
+  }
 }

@@ -17,7 +17,7 @@ describe('onnxruntime RapidOCR configuration', () => {
     await expect(resolveRapidOCROptions({ configPath: path })).resolves.toMatchObject({
       enableCpuMemArena: false,
       recognitionModel: { langType: 'ch', modelType: 'small', ocrVersion: 'PP-OCRv6' },
-      executionProviders: ['cpu'],
+      executionProviders: 'auto',
     })
   })
 

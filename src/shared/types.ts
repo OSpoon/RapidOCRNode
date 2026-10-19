@@ -3,6 +3,8 @@ import type * as ort from 'onnxruntime-node'
 import type { ModelSelection } from '../models/registry.js'
 
 export type ExecutionProviderConfig = NonNullable<ort.InferenceSession.SessionOptions['executionProviders']>[number]
+/** Automatically choose a platform-preferred provider, or use an explicit provider priority list. */
+export type ExecutionProviderSelection = 'auto' | readonly ExecutionProviderConfig[]
 
 /** Upstream-compatible diagnostic threshold. Messages are written to stderr. */
 export type RapidOCRLogLevel = 'debug' | 'info' | 'warning' | 'error' | 'critical'
@@ -91,8 +93,8 @@ export interface TextRecognizerOptions {
   interOpNumThreads?: number
   /** ONNX Runtime CPU memory arena setting. */
   enableCpuMemArena?: boolean
-  /** ONNX Runtime execution providers in priority order. Defaults to CPU. */
-  executionProviders?: readonly ExecutionProviderConfig[]
+  /** ONNX Runtime execution providers in priority order. Defaults to `auto`. */
+  executionProviders?: ExecutionProviderSelection
   /** Directory used to cache default models. */
   modelDirectory?: string
   /** Optional TrueType/OpenType font file used by `recognizeLines().vis()`. */
@@ -332,14 +334,14 @@ export interface RapidOCROptions {
   interOpNumThreads?: number
   /** ONNX Runtime CPU memory arena setting, applied to every enabled stage. */
   enableCpuMemArena?: boolean
-  /** Fallback execution-provider order for stages without a stage-specific setting. Defaults to CPU. */
-  executionProviders?: readonly ExecutionProviderConfig[]
+  /** Execution-provider selection for stages without a stage-specific setting. Defaults to `auto`. */
+  executionProviders?: ExecutionProviderSelection
   /** ONNX Runtime execution providers for detection. */
-  detectionExecutionProviders?: readonly ExecutionProviderConfig[]
+  detectionExecutionProviders?: ExecutionProviderSelection
   /** ONNX Runtime execution providers for recognition. */
-  recognitionExecutionProviders?: readonly ExecutionProviderConfig[]
+  recognitionExecutionProviders?: ExecutionProviderSelection
   /** ONNX Runtime execution providers for classification. */
-  classifierExecutionProviders?: readonly ExecutionProviderConfig[]
+  classifierExecutionProviders?: ExecutionProviderSelection
   /** DB probability-map threshold. Defaults to 0.3. */
   detectionThreshold?: number
   /** Minimum text probability inside a detection box. Defaults to 0.5. */

@@ -4,7 +4,7 @@
  * Licensed under Apache-2.0. See LICENSE.md and NOTICE.md.
  */
 import type { DecodedRgbImage } from '../../image/image.js'
-import type { ExecutionProviderConfig, ImageInput, RapidOCRImage, RapidOCRStageVisualization, RawRgbImage } from '../../shared/types.js'
+import type { ExecutionProviderSelection, ImageInput, RapidOCRImage, RapidOCRStageVisualization, RawRgbImage } from '../../shared/types.js'
 import { performance } from 'node:perf_hooks'
 import * as ort from 'onnxruntime-node'
 import { createInferenceSession } from '../../backends/inference.js'
@@ -65,7 +65,7 @@ export class TextClassifier {
   static async create(
     modelPath: string,
     intraOpNumThreads?: number,
-    executionProviders: readonly ExecutionProviderConfig[] = ['cpu'],
+    executionProviders: ExecutionProviderSelection = 'auto',
     interOpNumThreads?: number,
     rotateThreshold = DEFAULT_ROTATE_THRESHOLD,
     batchSize = CLASSIFICATION_BATCH_SIZE,
@@ -87,7 +87,7 @@ export class TextClassifier {
     if (interOpNumThreads !== undefined && (!Number.isInteger(interOpNumThreads) || interOpNumThreads < 1)) {
       throw new RangeError('interOpNumThreads must be a positive integer.')
     }
-    if (executionProviders.length === 0) {
+    if (executionProviders !== 'auto' && executionProviders.length === 0) {
       throw new RangeError('executionProviders must contain at least one provider.')
     }
     validateRotateThreshold(rotateThreshold)

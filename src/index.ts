@@ -14,6 +14,7 @@ export { TextRecognizer } from './pipeline/recognition/recognizer.js'
 export type { TextRecognitionOutput } from './pipeline/recognition/recognizer.js'
 export type {
   ExecutionProviderConfig,
+  ExecutionProviderSelection,
   ImageInput,
   Point,
   RapidOCRBox,

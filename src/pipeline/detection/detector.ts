@@ -3,7 +3,7 @@
  * Copyright (c) RapidOCR Authors; Node.js changes copyright (c) 2026 OSpoon.
  * Licensed under Apache-2.0. See LICENSE.md and NOTICE.md.
  */
-import type { ExecutionProviderConfig, ImageInput, RapidOCRBox, RapidOCRImage, RapidOCRStageVisualization, TextBox } from '../../shared/types.js'
+import type { ExecutionProviderSelection, ImageInput, RapidOCRBox, RapidOCRImage, RapidOCRStageVisualization, TextBox } from '../../shared/types.js'
 import type { DetectorBox, DetectorPostprocessOptions } from './postprocess.js'
 import { performance } from 'node:perf_hooks'
 import * as ort from 'onnxruntime-node'
@@ -67,7 +67,7 @@ export class TextDetector {
     modelPath: string,
     intraOpNumThreads?: number,
     postprocessOptions: DetectorPostprocessOptions = {},
-    executionProviders: readonly ExecutionProviderConfig[] = ['cpu'],
+    executionProviders: ExecutionProviderSelection = 'auto',
     interOpNumThreads?: number,
     enableCpuMemArena?: boolean,
     onExecutionProviderFallback?: (message: string) => void,
@@ -79,7 +79,7 @@ export class TextDetector {
     if (interOpNumThreads !== undefined && (!Number.isInteger(interOpNumThreads) || interOpNumThreads < 1)) {
       throw new RangeError('interOpNumThreads must be a positive integer.')
     }
-    if (executionProviders.length === 0) {
+    if (executionProviders !== 'auto' && executionProviders.length === 0) {
       throw new RangeError('executionProviders must contain at least one provider.')
     }
     const session = await createInferenceSession(modelPath, {

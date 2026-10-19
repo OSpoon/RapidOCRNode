@@ -1,9 +1,12 @@
-import type { DataType, Message, PretrainedModelOptions, TextGenerationPipeline } from '@huggingface/transformers'
+import type { DataType, DeviceType, Message, PretrainedModelOptions, TextGenerationPipeline } from '@huggingface/transformers'
 import type { RecognizedLine } from '../shared/types.js'
+import { arch, platform } from 'node:os'
+import { performance } from 'node:perf_hooks'
 import { getModelDirectory } from '../models/download.js'
 
 const DEFAULT_MODEL_ID = 'onnx-community/Qwen3-0.6B-ONNX'
 const DEFAULT_DTYPE: DataType = 'q4f16'
+const DEFAULT_DEVICE: DeviceType = 'auto'
 
 /** Field keys and short descriptions supplied by the caller for one extraction. */
 export type OCRStructuredFields = Readonly<Record<string, string>>
@@ -18,8 +21,21 @@ export type OCRStructuredEvidence<Fields extends OCRStructuredFields> = {
   [Key in keyof Fields]: number[]
 }
 
+/** Structured extraction durations in seconds. `total` includes queue wait. */
+export interface OCRStructuredTimings {
+  /** Time spent waiting behind earlier calls on this structurer instance. */
+  queue: number
+  /** Lazy Transformers.js/model initialization time; zero after the model is loaded. */
+  modelLoad: number
+  /** Tokenization and text generation time for this extraction. */
+  generation: number
+  /** Time from calling `extract()` through result parsing, including queue wait. */
+  total: number
+}
+
 export interface OCRStructuredResult<Fields extends OCRStructuredFields> {
   evidence: OCRStructuredEvidence<Fields>
+  timings: OCRStructuredTimings
   values: OCRStructuredValues<Fields>
 }
 
@@ -28,6 +44,8 @@ export interface OCRTextStructurerOptions {
   modelId?: string
   /** ONNX model quantization. The default Qwen3 model uses Q4F16. */
   dtype?: DataType
+  /** Transformers.js execution device. Defaults to `auto`. */
+  device?: DeviceType
   /** Shared model directory. Defaults to the same directory used by RapidOCR and RAPIDOCR_MODEL_DIR. */
   modelDirectory?: string
   /** Optional Transformers.js cache override; takes precedence over modelDirectory. */
@@ -50,6 +68,9 @@ export class OCRTextStructurer {
 
   private readonly modelId: string
   private readonly dtype: DataType
+  private readonly device: DeviceType
+  private readonly autoDeviceCandidates: DeviceType[]
+  private autoDeviceIndex = 0
   private readonly cacheDirectory: string
   private readonly revision: string | undefined
   private readonly maxNewTokens: number | undefined
@@ -57,6 +78,8 @@ export class OCRTextStructurer {
   constructor(options: OCRTextStructurerOptions = {}) {
     this.modelId = options.modelId ?? DEFAULT_MODEL_ID
     this.dtype = options.dtype ?? DEFAULT_DTYPE
+    this.device = options.device ?? DEFAULT_DEVICE
+    this.autoDeviceCandidates = this.device === 'auto' ? getAutoDeviceCandidates() : []
     this.cacheDirectory = getModelDirectory(options.cacheDirectory ?? options.modelDirectory)
     this.revision = options.revision
     this.maxNewTokens = options.maxNewTokens
@@ -82,8 +105,15 @@ export class OCRTextStructurer {
     fields: Fields,
   ): Promise<OCRStructuredResult<Fields>> {
     this.assertOpen()
+    const extractStartedAt = performance.now()
     const keys = validateFields(fields)
-    const task = this.queue.then(() => this.extractQueued(lines, fields, keys))
+    const enqueuedAt = performance.now()
+    const task = this.queue.then(async () => {
+      const startedAt = performance.now()
+      const result = await this.extractQueued(lines, fields, keys, (startedAt - enqueuedAt) / 1000)
+      result.timings.total = (performance.now() - extractStartedAt) / 1000
+      return result
+    })
     this.queue = task.then(() => undefined, () => undefined)
     return await task
   }
@@ -107,18 +137,24 @@ export class OCRTextStructurer {
     lines: readonly Pick<RecognizedLine, 'text'>[],
     fields: Fields,
     keys: string[],
+    queueTime: number,
   ): Promise<OCRStructuredResult<Fields>> {
     const values = Object.create(null) as OCRStructuredValues<Fields>
     const evidence = Object.create(null) as OCRStructuredEvidence<Fields>
+    const timings: OCRStructuredTimings = {
+      queue: queueTime,
+      modelLoad: 0,
+      generation: 0,
+      total: 0,
+    }
     if (lines.length === 0 || lines.every(line => line.text.trim().length === 0)) {
       for (const key of keys) {
         values[key as keyof Fields] = null
         evidence[key as keyof Fields] = []
       }
-      return { evidence, values }
+      return { evidence, timings, values }
     }
 
-    const generator = await this.getGenerator()
     const fieldDescriptions = keys.map(key => `${key} (${fields[key]})`).join(', ')
     const ocrText = lines.map((line, index) => `${index}: ${line.text}`).join('\n')
     const messages: Message[] = [{
@@ -138,9 +174,12 @@ export class OCRTextStructurer {
     // generation instead of silently truncating larger field sets.
     const generationOptions = (this.maxNewTokens === undefined
       ? { do_sample: false, max_length: null, max_new_tokens: null }
-      : { do_sample: false, max_new_tokens: this.maxNewTokens }) as Parameters<typeof generator>[1]
-    const generated = await generator(messages, generationOptions)
-    const generatedChat = generated[0]?.generated_text
+      : { do_sample: false, max_new_tokens: this.maxNewTokens }) as Parameters<TextGenerationPipeline>[1]
+    const generation = await this.generateWithAutoFallback(messages, generationOptions)
+    timings.modelLoad = generation.modelLoad
+    timings.generation = generation.generation
+    const generated = generation.output
+    const generatedChat = (generated[0] as { generated_text?: unknown } | undefined)?.generated_text
     const generatedMessage = Array.isArray(generatedChat) ? generatedChat.at(-1) : undefined
     const generatedText = getMessageText(generatedMessage)
     const parsedValues = parseGeneratedObject(generatedText)
@@ -159,7 +198,7 @@ export class OCRTextStructurer {
       evidenceByKey[key] = valuesByKey[key] === null ? [] : lineIndexes
     }
 
-    return { evidence, values }
+    return { evidence, timings, values }
   }
 
   private async getGenerator(): Promise<TextGenerationPipeline> {
@@ -176,27 +215,98 @@ export class OCRTextStructurer {
         { cause: error },
       )
     }
-    const modelOptions: PretrainedModelOptions = {
-      device: 'cpu',
+    const modelOptions: Omit<PretrainedModelOptions, 'device'> = {
       dtype: this.dtype,
       cache_dir: this.cacheDirectory,
       ...(this.revision === undefined ? {} : { revision: this.revision }),
     }
-    const generatorPromise = pipeline('text-generation', this.modelId, modelOptions)
-    this.generatorPromise = generatorPromise
-    try {
-      return await generatorPromise
+    const devices = this.device === 'auto' ? this.autoDeviceCandidates : [this.device]
+    const errors: unknown[] = []
+    for (; this.autoDeviceIndex < devices.length; this.autoDeviceIndex++) {
+      const device = devices[this.autoDeviceIndex]!
+      let generatorPromise: Promise<TextGenerationPipeline> | undefined
+      try {
+        generatorPromise = pipeline('text-generation', this.modelId, { ...modelOptions, device })
+        this.generatorPromise = generatorPromise
+        return await generatorPromise
+      }
+      catch (error) {
+        errors.push(error)
+        if (generatorPromise && this.generatorPromise === generatorPromise)
+          this.generatorPromise = undefined
+        if (this.device !== 'auto')
+          throw error
+      }
     }
-    catch (error) {
-      if (this.generatorPromise === generatorPromise)
-        this.generatorPromise = undefined
-      throw error
+
+    throw new AggregateError(errors, `Unable to load the structured model with auto devices: ${devices.join(', ')}.`)
+  }
+
+  private async generateWithAutoFallback(
+    messages: Message[],
+    options: Parameters<TextGenerationPipeline>[1],
+  ): Promise<{
+    output: Awaited<ReturnType<TextGenerationPipeline>>
+    modelLoad: number
+    generation: number
+  }> {
+    const errors: unknown[] = []
+    let modelLoad = 0
+    let generation = 0
+
+    while (true) {
+      const wasLoaded = this.generatorPromise !== undefined
+      const loadStartedAt = performance.now()
+      let generator: TextGenerationPipeline
+      try {
+        generator = await this.getGenerator()
+      }
+      catch (error) {
+        if (this.device !== 'auto')
+          throw error
+        throw new AggregateError([...errors, error], `Unable to generate structured output with auto devices: ${this.autoDeviceCandidates.join(', ')}.`)
+      }
+      if (!wasLoaded)
+        modelLoad += (performance.now() - loadStartedAt) / 1000
+
+      const generationStartedAt = performance.now()
+      try {
+        const output = await generator(messages, options)
+        generation += (performance.now() - generationStartedAt) / 1000
+        return { output, modelLoad, generation }
+      }
+      catch (error) {
+        generation += (performance.now() - generationStartedAt) / 1000
+        if (this.device !== 'auto')
+          throw error
+
+        errors.push(error)
+        if (this.generatorPromise)
+          this.generatorPromise = undefined
+        await Promise.resolve().then(() => generator.dispose()).catch(() => undefined)
+        this.autoDeviceIndex++
+        if (this.autoDeviceIndex >= this.autoDeviceCandidates.length)
+          throw new AggregateError(errors, `Unable to generate structured output with auto devices: ${this.autoDeviceCandidates.join(', ')}.`)
+      }
     }
   }
 
   private assertOpen(): void {
     if (this.state !== 'open')
       throw new Error(`OCRTextStructurer is ${this.state}.`)
+  }
+}
+
+function getAutoDeviceCandidates(): DeviceType[] {
+  switch (platform()) {
+    case 'darwin':
+      return ['webgpu', 'coreml', 'cpu']
+    case 'win32':
+      return ['dml', 'webgpu', 'cpu']
+    case 'linux':
+      return arch() === 'x64' ? ['cuda', 'webgpu', 'cpu'] : ['webgpu', 'cpu']
+    default:
+      return ['cpu']
   }
 }
 
