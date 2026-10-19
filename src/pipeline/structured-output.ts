@@ -1,12 +1,14 @@
 import type { DataType, DeviceType, Message, PretrainedModelOptions, TextGenerationPipeline } from '@huggingface/transformers'
 import type { RecognizedLine } from '../shared/types.js'
-import { arch, platform } from 'node:os'
 import { performance } from 'node:perf_hooks'
 import { getModelDirectory } from '../models/download.js'
 
 const DEFAULT_MODEL_ID = 'onnx-community/Qwen3-0.6B-ONNX'
 const DEFAULT_DTYPE: DataType = 'q4f16'
-const DEFAULT_DEVICE: DeviceType = 'auto'
+const DEFAULT_DEVICE: OCRStructuredDevice = 'cpu'
+
+/** Explicit Transformers.js devices; structured extraction does not auto-select a backend. */
+export type OCRStructuredDevice = Exclude<DeviceType, 'auto'>
 
 /** Field keys and short descriptions supplied by the caller for one extraction. */
 export type OCRStructuredFields = Readonly<Record<string, string>>
@@ -44,8 +46,8 @@ export interface OCRTextStructurerOptions {
   modelId?: string
   /** ONNX model quantization. The default Qwen3 model uses Q4F16. */
   dtype?: DataType
-  /** Transformers.js execution device. Defaults to `auto`. */
-  device?: DeviceType
+  /** Transformers.js execution device. Defaults to `cpu`. */
+  device?: OCRStructuredDevice
   /** Shared model directory. Defaults to the same directory used by RapidOCR and RAPIDOCR_MODEL_DIR. */
   modelDirectory?: string
   /** Optional Transformers.js cache override; takes precedence over modelDirectory. */
@@ -68,9 +70,7 @@ export class OCRTextStructurer {
 
   private readonly modelId: string
   private readonly dtype: DataType
-  private readonly device: DeviceType
-  private readonly autoDeviceCandidates: DeviceType[]
-  private autoDeviceIndex = 0
+  private readonly device: OCRStructuredDevice
   private readonly cacheDirectory: string
   private readonly revision: string | undefined
   private readonly maxNewTokens: number | undefined
@@ -78,8 +78,10 @@ export class OCRTextStructurer {
   constructor(options: OCRTextStructurerOptions = {}) {
     this.modelId = options.modelId ?? DEFAULT_MODEL_ID
     this.dtype = options.dtype ?? DEFAULT_DTYPE
-    this.device = options.device ?? DEFAULT_DEVICE
-    this.autoDeviceCandidates = this.device === 'auto' ? getAutoDeviceCandidates() : []
+    const requestedDevice = (options as { device?: DeviceType }).device
+    if (requestedDevice === 'auto')
+      throw new TypeError('device must be selected explicitly; auto is not supported for structured extraction.')
+    this.device = requestedDevice ?? DEFAULT_DEVICE
     this.cacheDirectory = getModelDirectory(options.cacheDirectory ?? options.modelDirectory)
     this.revision = options.revision
     this.maxNewTokens = options.maxNewTokens
@@ -172,13 +174,17 @@ export class OCRTextStructurer {
     // Transformers.js defaults text-generation pipelines to 256 new tokens.
     // Pass null for both limits unless the caller opts into a cap, so EOS ends
     // generation instead of silently truncating larger field sets.
+    const modelIsLoaded = this.generatorPromise !== undefined
+    const modelLoadStartedAt = performance.now()
+    const generator = await this.getGenerator()
+    if (!modelIsLoaded)
+      timings.modelLoad = (performance.now() - modelLoadStartedAt) / 1000
     const generationOptions = (this.maxNewTokens === undefined
       ? { do_sample: false, max_length: null, max_new_tokens: null }
-      : { do_sample: false, max_new_tokens: this.maxNewTokens }) as Parameters<TextGenerationPipeline>[1]
-    const generation = await this.generateWithAutoFallback(messages, generationOptions)
-    timings.modelLoad = generation.modelLoad
-    timings.generation = generation.generation
-    const generated = generation.output
+      : { do_sample: false, max_new_tokens: this.maxNewTokens }) as Parameters<typeof generator>[1]
+    const generationStartedAt = performance.now()
+    const generated = await generator(messages, generationOptions)
+    timings.generation = (performance.now() - generationStartedAt) / 1000
     const generatedChat = (generated[0] as { generated_text?: unknown } | undefined)?.generated_text
     const generatedMessage = Array.isArray(generatedChat) ? generatedChat.at(-1) : undefined
     const generatedText = getMessageText(generatedMessage)
@@ -215,98 +221,28 @@ export class OCRTextStructurer {
         { cause: error },
       )
     }
-    const modelOptions: Omit<PretrainedModelOptions, 'device'> = {
+    const modelOptions: PretrainedModelOptions = {
+      device: this.device,
       dtype: this.dtype,
       cache_dir: this.cacheDirectory,
       ...(this.revision === undefined ? {} : { revision: this.revision }),
     }
-    const devices = this.device === 'auto' ? this.autoDeviceCandidates : [this.device]
-    const errors: unknown[] = []
-    for (; this.autoDeviceIndex < devices.length; this.autoDeviceIndex++) {
-      const device = devices[this.autoDeviceIndex]!
-      let generatorPromise: Promise<TextGenerationPipeline> | undefined
-      try {
-        generatorPromise = pipeline('text-generation', this.modelId, { ...modelOptions, device })
-        this.generatorPromise = generatorPromise
-        return await generatorPromise
-      }
-      catch (error) {
-        errors.push(error)
-        if (generatorPromise && this.generatorPromise === generatorPromise)
-          this.generatorPromise = undefined
-        if (this.device !== 'auto')
-          throw error
-      }
+    let generatorPromise: Promise<TextGenerationPipeline> | undefined
+    try {
+      generatorPromise = pipeline('text-generation', this.modelId, modelOptions)
+      this.generatorPromise = generatorPromise
+      return await generatorPromise
     }
-
-    throw new AggregateError(errors, `Unable to load the structured model with auto devices: ${devices.join(', ')}.`)
-  }
-
-  private async generateWithAutoFallback(
-    messages: Message[],
-    options: Parameters<TextGenerationPipeline>[1],
-  ): Promise<{
-    output: Awaited<ReturnType<TextGenerationPipeline>>
-    modelLoad: number
-    generation: number
-  }> {
-    const errors: unknown[] = []
-    let modelLoad = 0
-    let generation = 0
-
-    while (true) {
-      const wasLoaded = this.generatorPromise !== undefined
-      const loadStartedAt = performance.now()
-      let generator: TextGenerationPipeline
-      try {
-        generator = await this.getGenerator()
-      }
-      catch (error) {
-        if (this.device !== 'auto')
-          throw error
-        throw new AggregateError([...errors, error], `Unable to generate structured output with auto devices: ${this.autoDeviceCandidates.join(', ')}.`)
-      }
-      if (!wasLoaded)
-        modelLoad += (performance.now() - loadStartedAt) / 1000
-
-      const generationStartedAt = performance.now()
-      try {
-        const output = await generator(messages, options)
-        generation += (performance.now() - generationStartedAt) / 1000
-        return { output, modelLoad, generation }
-      }
-      catch (error) {
-        generation += (performance.now() - generationStartedAt) / 1000
-        if (this.device !== 'auto')
-          throw error
-
-        errors.push(error)
-        if (this.generatorPromise)
-          this.generatorPromise = undefined
-        await Promise.resolve().then(() => generator.dispose()).catch(() => undefined)
-        this.autoDeviceIndex++
-        if (this.autoDeviceIndex >= this.autoDeviceCandidates.length)
-          throw new AggregateError(errors, `Unable to generate structured output with auto devices: ${this.autoDeviceCandidates.join(', ')}.`)
-      }
+    catch (error) {
+      if (generatorPromise && this.generatorPromise === generatorPromise)
+        this.generatorPromise = undefined
+      throw error
     }
   }
 
   private assertOpen(): void {
     if (this.state !== 'open')
       throw new Error(`OCRTextStructurer is ${this.state}.`)
-  }
-}
-
-function getAutoDeviceCandidates(): DeviceType[] {
-  switch (platform()) {
-    case 'darwin':
-      return ['webgpu', 'coreml', 'cpu']
-    case 'win32':
-      return ['dml', 'webgpu', 'cpu']
-    case 'linux':
-      return arch() === 'x64' ? ['cuda', 'webgpu', 'cpu'] : ['webgpu', 'cpu']
-    default:
-      return ['cpu']
   }
 }
 

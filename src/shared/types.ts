@@ -3,8 +3,8 @@ import type * as ort from 'onnxruntime-node'
 import type { ModelSelection } from '../models/registry.js'
 
 export type ExecutionProviderConfig = NonNullable<ort.InferenceSession.SessionOptions['executionProviders']>[number]
-/** Automatically choose a platform-preferred provider, or use an explicit provider priority list. */
-export type ExecutionProviderSelection = 'auto' | readonly ExecutionProviderConfig[]
+/** Explicit ONNX Runtime provider priority list. Defaults to CPU. */
+export type ExecutionProviderSelection = readonly ExecutionProviderConfig[]
 
 /** Upstream-compatible diagnostic threshold. Messages are written to stderr. */
 export type RapidOCRLogLevel = 'debug' | 'info' | 'warning' | 'error' | 'critical'
@@ -93,7 +93,7 @@ export interface TextRecognizerOptions {
   interOpNumThreads?: number
   /** ONNX Runtime CPU memory arena setting. */
   enableCpuMemArena?: boolean
-  /** ONNX Runtime execution providers in priority order. Defaults to `auto`. */
+  /** ONNX Runtime execution providers in priority order. Defaults to CPU. */
   executionProviders?: ExecutionProviderSelection
   /** Directory used to cache default models. */
   modelDirectory?: string
@@ -334,7 +334,7 @@ export interface RapidOCROptions {
   interOpNumThreads?: number
   /** ONNX Runtime CPU memory arena setting, applied to every enabled stage. */
   enableCpuMemArena?: boolean
-  /** Execution-provider selection for stages without a stage-specific setting. Defaults to `auto`. */
+  /** Execution-provider selection for stages without a stage-specific setting. Defaults to CPU. */
   executionProviders?: ExecutionProviderSelection
   /** ONNX Runtime execution providers for detection. */
   detectionExecutionProviders?: ExecutionProviderSelection

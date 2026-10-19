@@ -119,7 +119,7 @@ export class RapidOCR {
       recognition: options.recognitionExecutionProviders,
       classification: options.classifierExecutionProviders,
     })) {
-      if (providers !== undefined && providers !== 'auto' && providers.length === 0) {
+      if (providers !== undefined && providers.length === 0) {
         throw new RangeError(`${stage} executionProviders must contain at least one provider.`)
       }
     }
@@ -515,7 +515,7 @@ export class RapidOCR {
       paths.detectionModelPath,
       this.options.intraOpNumThreads,
       this.detectorOptions,
-      this.options.detectionExecutionProviders ?? this.options.executionProviders ?? 'auto',
+      this.options.detectionExecutionProviders ?? this.options.executionProviders ?? ['cpu'],
       this.options.interOpNumThreads,
       this.options.enableCpuMemArena,
       message => this.logExecutionProviderFallback(message),
@@ -567,7 +567,7 @@ export class RapidOCR {
     const classifier = await TextClassifier.create(
       paths.classifierModelPath,
       this.options.intraOpNumThreads,
-      this.options.classifierExecutionProviders ?? this.options.executionProviders ?? 'auto',
+      this.options.classifierExecutionProviders ?? this.options.executionProviders ?? ['cpu'],
       this.options.interOpNumThreads,
       this.options.classifierThreshold,
       this.options.classifierBatchSize,
@@ -601,7 +601,7 @@ export class RapidOCR {
         modelSelection: this.options.recognitionModel,
         ...(this.options.recognitionSession !== undefined
           ? {}
-          : { executionProviders: this.options.recognitionExecutionProviders ?? this.options.executionProviders ?? 'auto' }),
+          : { executionProviders: this.options.recognitionExecutionProviders ?? this.options.executionProviders ?? ['cpu'] }),
       }, message => this.logExecutionProviderFallback(message))
       if (this.options.recognitionSession) {
         this.logger('debug', 'Using caller-provided recognition session.')

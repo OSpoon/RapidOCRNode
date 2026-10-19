@@ -67,7 +67,7 @@ export class TextDetector {
     modelPath: string,
     intraOpNumThreads?: number,
     postprocessOptions: DetectorPostprocessOptions = {},
-    executionProviders: ExecutionProviderSelection = 'auto',
+    executionProviders: ExecutionProviderSelection = ['cpu'],
     interOpNumThreads?: number,
     enableCpuMemArena?: boolean,
     onExecutionProviderFallback?: (message: string) => void,
@@ -79,7 +79,7 @@ export class TextDetector {
     if (interOpNumThreads !== undefined && (!Number.isInteger(interOpNumThreads) || interOpNumThreads < 1)) {
       throw new RangeError('interOpNumThreads must be a positive integer.')
     }
-    if (executionProviders !== 'auto' && executionProviders.length === 0) {
+    if (executionProviders.length === 0) {
       throw new RangeError('executionProviders must contain at least one provider.')
     }
     const session = await createInferenceSession(modelPath, {

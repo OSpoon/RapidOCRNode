@@ -264,7 +264,7 @@ npm install -g rapidocr-node@latest @huggingface/transformers
 rapidocr-node ./invoice.jpg --structured-fields '{"invoiceNumber":"发票号码"}'
 ~~~
 
-结构化提取默认使用 `auto`，传入 `--structured-fields` 时按需加载模型；其他选项见 `--help`。
+结构化提取默认使用 CPU，传入 `--structured-fields` 时按需加载模型；其他选项见 `--help`。
 
 模型版本和规格通过配置文件选择；可用路由通过 `--list-langs` 查询。
 
@@ -333,13 +333,11 @@ npx --yes \
   --package=@huggingface/transformers \
   rapidocr-node serve start \
   --structured-model onnx-community/Qwen3-0.6B-ONNX \
-  --structured-device auto \
   --structured-max-new-tokens 512
 
 # 如果两个包都全局安装，则直接使用全局 CLI
 rapidocr-node serve start \
   --structured-model onnx-community/Qwen3-0.6B-ONNX \
-  --structured-device auto \
   --structured-max-new-tokens 512
 ~~~
 
@@ -374,8 +372,7 @@ OCR 与结构化结果及耗时均包含在响应中；完整请求和响应定�
 
 模型路由与 RapidOCR v3.10.0 对齐，支持 PP-OCRv4、PP-OCRv5 和 PP-OCRv6；可用路由见 **listSupportedLanguages()**。
 
-OCR 默认使用 **auto** 后端，按平台选择可用加速器并回退到 CPU。可通过 **executionProviders** 或分阶段配置固定后端。
-结构化提取的 **auto** 按平台尝试加速设备；模型加载或推理失败时切换到下一后端。
+OCR 和结构化提取默认使用 **CPU**。可在 API 或配置文件中为 OCR 显式指定执行后端，也可通过 API 的 **device** 或 CLI/服务的 **--structured-device** 为结构化提取指定后端。
 
 ### 本地速度对照
 
@@ -393,7 +390,6 @@ OCR 使用 PP-OCRv6 small 检测/识别和 PP-OCRv4 mobile 分类，热运行 12
 
 | 结构化设备 | 首次总耗时（模型加载） | 热运行总耗时 P50 / P95 |
 | --- | ---: | ---: |
-| auto | 3.30 秒（1.20 秒） | 1.95 / 1.98 秒 |
 | CPU | 9.31 秒（0.73 秒） | 10.44 / 10.65 秒 |
 | CoreML | 12.11 秒（0.97 秒） | 9.65 / 10.53 秒 |
 | WebGPU | 3.70 秒（1.41 秒） | 2.11 / 2.14 秒 |

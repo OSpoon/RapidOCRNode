@@ -185,7 +185,7 @@ function createCli(): Command {
     .option('--model-dir <path>', 'Model and font cache directory')
     .option('--structured-fields <json-or-path>', 'Extract fields using a JSON object or a JSON file (invoice and receipt use)')
     .option('--structured-model <id-or-path>', 'Text model for structured extraction')
-    .addOption(new Option('--structured-device <device>', 'Execution device for structured extraction (default: auto)').choices(['auto', 'cpu', 'coreml', 'webgpu', 'cuda', 'dml']))
+    .addOption(new Option('--structured-device <device>', 'Execution device for structured extraction (default: cpu)').choices(['cpu', 'coreml', 'webgpu', 'cuda', 'dml']))
     .option('--structured-max-new-tokens <count>', 'Optional generation token limit for structured extraction', parsePositiveInteger)
     .option('--no-download', 'Disable automatic model downloads (enabled by default)')
     .option('--list_langs, --list-langs', 'List languages supported by a task model')
@@ -231,7 +231,7 @@ function createCli(): Command {
     .option('--max-image-pixels <pixels>', 'Maximum decoded image pixel count', parsePositiveInteger, 20_000_000)
     .option('--max-concurrency <count>', 'Maximum concurrent OCR requests', parsePositiveInteger, 1)
     .option('--structured-model <id-or-path>', 'Text model for optional invoice/receipt field extraction')
-    .addOption(new Option('--structured-device <device>', 'Execution device for structured extraction (default: auto)').choices(['auto', 'cpu', 'coreml', 'webgpu', 'cuda', 'dml']))
+    .addOption(new Option('--structured-device <device>', 'Execution device for structured extraction (default: cpu)').choices(['cpu', 'coreml', 'webgpu', 'cuda', 'dml']))
     .option('--structured-max-new-tokens <count>', 'Optional generation token limit for structured extraction', parsePositiveInteger)
 
   serverOptions(serve.command('run'))

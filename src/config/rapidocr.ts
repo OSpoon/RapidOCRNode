@@ -311,7 +311,7 @@ function getProviders(engine: ConfigRecord): ExecutionProviderSelection {
     providers.unshift({ name: 'coreml', coreMlFlags: getCoreMlFlags(readSection(engine, 'coreml_ep_cfg')) })
   }
   if (providers.length === 0)
-    return 'auto'
+    return ['cpu']
   providers.push('cpu')
   return providers
 }

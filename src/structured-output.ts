@@ -1,5 +1,6 @@
 export { OCRTextStructurer } from './pipeline/structured-output.js'
 export type {
+  OCRStructuredDevice,
   OCRStructuredEvidence,
   OCRStructuredFields,
   OCRStructuredResult,

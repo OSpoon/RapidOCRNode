@@ -1,6 +1,6 @@
 import type * as ort from 'onnxruntime-node'
-import type { ExecutionProviderConfig, ExecutionProviderSelection } from '../shared/types.js'
-import process, { emitWarning } from 'node:process'
+import type { ExecutionProviderSelection } from '../shared/types.js'
+import { emitWarning } from 'node:process'
 import { listSupportedBackends, InferenceSession as OnnxInferenceSession } from 'onnxruntime-node'
 
 export interface InferenceSessionOptions {
@@ -21,13 +21,14 @@ export async function createInferenceSession(
   modelPath: string,
   options: InferenceSessionOptions = {},
 ): Promise<ort.InferenceSession> {
-  const isAutomatic = options.executionProviders === 'auto'
+  if (options.executionProviders !== undefined && !Array.isArray(options.executionProviders)) {
+    throw new TypeError('executionProviders must be an explicit provider list; auto is not supported.')
+  }
+  if (options.executionProviders?.length === 0)
+    throw new RangeError('executionProviders must contain at least one provider.')
   const availableProviders = listSupportedBackends().map(backend => backend.name)
-  const requestedProviders: readonly ExecutionProviderConfig[] = options.executionProviders === 'auto'
-    ? getAutomaticExecutionProviders(availableProviders)
-    : options.executionProviders ?? ['cpu']
   const resolvedProviders = resolveSupportedExecutionProviders(
-    requestedProviders,
+    options.executionProviders ?? ['cpu'],
     availableProviders,
   )
   if (resolvedProviders.unavailable.length > 0) {
@@ -38,44 +39,7 @@ export async function createInferenceSession(
       emitWarning(message, { type: 'RapidOCRExecutionProviderWarning' })
   }
 
-  if (!isAutomatic)
-    return await OnnxInferenceSession.create(modelPath, buildOnnxSessionOptions(options, resolvedProviders.providers))
-
-  for (const provider of resolvedProviders.providers) {
-    if (providerName(provider).toLowerCase() === 'cpu')
-      continue
-    try {
-      return await OnnxInferenceSession.create(modelPath, buildOnnxSessionOptions(options, [provider, 'cpu']))
-    }
-    catch {
-      const message = `Automatic ONNX Runtime provider ${providerName(provider)} failed to initialize; trying the next available provider.`
-      if (options.onExecutionProviderFallback)
-        options.onExecutionProviderFallback(message)
-      else
-        emitWarning(message, { type: 'RapidOCRExecutionProviderWarning' })
-    }
-  }
-  return await OnnxInferenceSession.create(modelPath, buildOnnxSessionOptions(options, ['cpu']))
-}
-
-/** Selects platform-appropriate accelerators and always leaves CPU as the final fallback. */
-function getAutomaticExecutionProviders(
-  supportedNames: readonly string[],
-  platform: NodeJS.Platform = process.platform,
-): ExecutionProviderConfig[] {
-  const supported = new Set(supportedNames.map(name => name.toLowerCase()))
-  const preferredNames = platform === 'darwin'
-    ? ['webgpu']
-    : platform === 'win32'
-      ? ['cuda', 'dml', 'webgpu']
-      : platform === 'linux'
-        ? ['cuda', 'webgpu']
-        : ['webgpu']
-  const providers = preferredNames
-    .filter(name => supported.has(name))
-    .map(name => name as ExecutionProviderConfig)
-  providers.push('cpu')
-  return providers
+  return await OnnxInferenceSession.create(modelPath, buildOnnxSessionOptions(options, resolvedProviders.providers))
 }
 
 /** Keeps available providers in caller priority order and falls back to CPU when needed. */
