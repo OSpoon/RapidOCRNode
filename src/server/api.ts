@@ -10,14 +10,13 @@ import { LoadImageError } from '../image/image.js'
 import { RapidOCR } from '../pipeline/rapidocr.js'
 import { OCRTextStructurer } from '../pipeline/structured-output.js'
 
-export interface RapidOCRServerOptions {
+export interface RapidOCRServerOptions extends RapidOCROptions {
   maxConcurrency?: number
   maxFileSize?: number
   maxImagePixels?: number
   logger?: boolean
   ocr?: Pick<RapidOCR, 'recognize'>
   structurer?: Pick<OCRTextStructurer, 'extract' | 'close'>
-  rapidOptions?: RapidOCROptions
   structuredOutput?: OCRTextStructurerOptions
   ready?: boolean
 }
@@ -49,13 +48,9 @@ export async function createRapidOCRServer(options: RapidOCRServerOptions = {}):
   if (!Number.isSafeInteger(maxImagePixels) || maxImagePixels < 1)
     throw new RangeError('maxImagePixels must be a positive integer.')
 
+  const rapidOptions: RapidOCROptions = options
   const ownsOcr = options.ocr === undefined
-  const ocr = options.ocr ?? await RapidOCR.create({
-    ...options.rapidOptions,
-    useDetection: true,
-    useClassifier: true,
-    useRecognition: true,
-  })
+  const ocr = options.ocr ?? await RapidOCR.create(rapidOptions)
   if (ownsOcr) {
     try {
       await (ocr as RapidOCR).warmup()
@@ -70,8 +65,8 @@ export async function createRapidOCRServer(options: RapidOCRServerOptions = {}):
     ...(options.structuredOutput ?? {}),
     ...(options.structuredOutput?.modelDirectory === undefined
       && options.structuredOutput?.cacheDirectory === undefined
-      && options.rapidOptions?.modelDirectory !== undefined
-      ? { modelDirectory: options.rapidOptions.modelDirectory }
+      && rapidOptions.modelDirectory !== undefined
+      ? { modelDirectory: rapidOptions.modelDirectory }
       : {}),
   })
   const app = Fastify({
@@ -167,9 +162,9 @@ export async function createRapidOCRServer(options: RapidOCRServerOptions = {}):
       let result: RapidOCRResult
       try {
         result = await ocr.recognize(image, {
-          useDetection: true,
-          useClassifier: true,
-          useRecognition: true,
+          ...(requestOptions.useDetection === undefined ? {} : { useDetection: requestOptions.useDetection }),
+          ...(requestOptions.useClassifier === undefined ? {} : { useClassifier: requestOptions.useClassifier }),
+          ...(requestOptions.useRecognition === undefined ? {} : { useRecognition: requestOptions.useRecognition }),
           ...(requestOptions.boxThreshold === undefined ? {} : { boxThreshold: requestOptions.boxThreshold }),
           ...(requestOptions.unclipRatio === undefined ? {} : { unclipRatio: requestOptions.unclipRatio }),
           ...(requestOptions.textScoreThreshold === undefined ? {} : { textScoreThreshold: requestOptions.textScoreThreshold }),
@@ -299,7 +294,18 @@ function parseRequestOptions(value: unknown): RequestOptions {
   if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed))
     throw new ApiError(400, 'invalid_options', 'The "options" field must contain a JSON object.')
   const values = parsed as Record<string, unknown>
-  const allowed = new Set(['box_threshold', 'unclip_ratio', 'text_score_threshold', 'return_word_boxes', 'return_single_char_boxes', 'include_image', 'structured_fields'])
+  const allowed = new Set([
+    'useDetection',
+    'useClassifier',
+    'useRecognition',
+    'boxThreshold',
+    'unclipRatio',
+    'textScoreThreshold',
+    'returnWordBoxes',
+    'returnSingleCharBoxes',
+    'includeImage',
+    'structuredFields',
+  ])
   for (const key of Object.keys(values)) {
     if (!allowed.has(key))
       throw new ApiError(400, 'unknown_option', `Unsupported OCR option: ${key}.`)
@@ -320,14 +326,20 @@ function parseRequestOptions(value: unknown): RequestOptions {
       throw new ApiError(400, 'invalid_option', `${key} must be a boolean.`)
     return value
   }
-  const boxThreshold = numberOption('box_threshold', 0, 1)
-  const unclipRatio = numberOption('unclip_ratio', 0)
-  const textScoreThreshold = numberOption('text_score_threshold', 0, 1)
-  const returnWordBoxes = booleanOption('return_word_boxes')
-  const returnSingleCharBoxes = booleanOption('return_single_char_boxes')
-  const structuredFields = parseStructuredFields(values.structured_fields)
+  const useDetection = booleanOption('useDetection')
+  const useClassifier = booleanOption('useClassifier')
+  const useRecognition = booleanOption('useRecognition')
+  const boxThreshold = numberOption('boxThreshold', 0, 1)
+  const unclipRatio = numberOption('unclipRatio', 0)
+  const textScoreThreshold = numberOption('textScoreThreshold', 0, 1)
+  const returnWordBoxes = booleanOption('returnWordBoxes')
+  const returnSingleCharBoxes = booleanOption('returnSingleCharBoxes')
+  const structuredFields = parseStructuredFields(values.structuredFields)
   return {
-    includeImage: booleanOption('include_image', true)!,
+    includeImage: booleanOption('includeImage', true)!,
+    ...(useDetection === undefined ? {} : { useDetection }),
+    ...(useClassifier === undefined ? {} : { useClassifier }),
+    ...(useRecognition === undefined ? {} : { useRecognition }),
     ...(boxThreshold === undefined ? {} : { boxThreshold }),
     ...(unclipRatio === undefined ? {} : { unclipRatio }),
     ...(textScoreThreshold === undefined ? {} : { textScoreThreshold }),
@@ -341,14 +353,14 @@ function parseStructuredFields(value: unknown): OCRStructuredFields | undefined 
   if (value === undefined)
     return undefined
   if (value === null || typeof value !== 'object' || Array.isArray(value))
-    throw new ApiError(400, 'invalid_option', 'structured_fields must be an object mapping field keys to descriptions.')
+    throw new ApiError(400, 'invalid_option', 'structuredFields must be an object mapping field keys to descriptions.')
   const fields = value as Record<string, unknown>
   const keys = Object.keys(fields)
   if (keys.length === 0)
-    throw new ApiError(400, 'invalid_option', 'structured_fields must contain at least one field.')
+    throw new ApiError(400, 'invalid_option', 'structuredFields must contain at least one field.')
   for (const key of keys) {
     if (key.trim().length === 0 || typeof fields[key] !== 'string' || (fields[key] as string).trim().length === 0)
-      throw new ApiError(400, 'invalid_option', 'structured_fields must map non-empty field keys to non-empty descriptions.')
+      throw new ApiError(400, 'invalid_option', 'structuredFields must map non-empty field keys to non-empty descriptions.')
   }
   return fields as OCRStructuredFields
 }
@@ -373,29 +385,69 @@ function serializeResult(
       ...(structured === undefined ? {} : { structured }),
     }
   }
-  if (result.type !== 'ocr')
-    throw new Error(`The HTTP OCR pipeline returned an unexpected result type: ${result.type}.`)
-  const { img } = result
+  const img = serializeImage(result.img, includeImage)
+  const timings = { elapse_list: result.elapse_list, elapse: result.elapse }
+  switch (result.type) {
+    case 'ocr':
+      return {
+        request_id: requestId,
+        type: 'ocr',
+        img,
+        boxes: result.boxes,
+        txts: result.txts,
+        scores: result.scores,
+        word_results: result.word_results,
+        lang_rec: result.lang_rec,
+        ...timings,
+        ...(structured === undefined ? {} : { structured }),
+      }
+    case 'detection':
+      return {
+        request_id: requestId,
+        type: 'detection',
+        img,
+        boxes: result.boxes,
+        scores: result.scores,
+        ...timings,
+      }
+    case 'classification':
+      return {
+        request_id: requestId,
+        type: 'classification',
+        img,
+        cls_res: result.cls_res,
+        results: result.results,
+        img_list: includeImage ? result.img_list.map(image => serializeImage(image, true)) : [],
+        ...timings,
+      }
+    case 'recognition':
+      return {
+        request_id: requestId,
+        type: 'recognition',
+        img,
+        results: result.results,
+        imgs: includeImage ? result.imgs.map(image => serializeImage(image, true)) : [],
+        txts: result.txts,
+        scores: result.scores,
+        word_results: result.word_results,
+        lang_rec: result.lang_rec,
+        ...timings,
+      }
+  }
+}
+
+function serializeImage(
+  image: { data: Uint8Array, format: 'BGR', height: number, width: number },
+  includeImage: boolean,
+): Record<string, unknown> | null {
+  if (!includeImage)
+    return null
   return {
-    request_id: requestId,
-    type: 'ocr',
-    img: includeImage
-      ? {
-          data: Buffer.from(img.data).toString('base64'),
-          encoding: 'base64',
-          format: img.format,
-          height: img.height,
-          width: img.width,
-        }
-      : null,
-    boxes: result.boxes,
-    txts: result.txts,
-    scores: result.scores,
-    word_results: result.word_results,
-    lang_rec: result.lang_rec,
-    elapse_list: result.elapse_list,
-    elapse: result.elapse,
-    ...(structured === undefined ? {} : { structured }),
+    data: Buffer.from(image.data).toString('base64'),
+    encoding: 'base64',
+    format: image.format,
+    height: image.height,
+    width: image.width,
   }
 }
 
@@ -448,13 +500,16 @@ function openApiDocument(maxFileSize: number, maxImagePixels: number): Record<st
           type: 'object',
           additionalProperties: false,
           properties: {
-            box_threshold: { type: 'number', minimum: 0, maximum: 1 },
-            unclip_ratio: { type: 'number', minimum: 0 },
-            text_score_threshold: { type: 'number', minimum: 0, maximum: 1 },
-            return_word_boxes: { type: 'boolean', default: false },
-            return_single_char_boxes: { type: 'boolean', default: false },
-            include_image: { type: 'boolean', default: true },
-            structured_fields: {
+            useDetection: { type: 'boolean', default: true },
+            useClassifier: { type: 'boolean', default: true },
+            useRecognition: { type: 'boolean', default: true },
+            boxThreshold: { type: 'number', minimum: 0, maximum: 1 },
+            unclipRatio: { type: 'number', minimum: 0 },
+            textScoreThreshold: { type: 'number', minimum: 0, maximum: 1 },
+            returnWordBoxes: { type: 'boolean', default: false },
+            returnSingleCharBoxes: { type: 'boolean', default: false },
+            includeImage: { type: 'boolean', default: true },
+            structuredFields: {
               type: 'object',
               minProperties: 1,
               additionalProperties: { type: 'string', minLength: 1 },
@@ -466,7 +521,38 @@ function openApiDocument(maxFileSize: number, maxImagePixels: number): Record<st
           oneOf: [
             { $ref: '#/components/schemas/OcrResult' },
             { $ref: '#/components/schemas/EmptyResult' },
+            { $ref: '#/components/schemas/StageResult' },
           ],
+        },
+        StageResult: {
+          type: 'object',
+          required: ['request_id', 'type', 'img', 'elapse_list', 'elapse'],
+          properties: {
+            request_id: { type: 'string' },
+            type: { type: 'string', enum: ['detection', 'classification', 'recognition'] },
+            img: { oneOf: [{ $ref: '#/components/schemas/EncodedImage' }, { type: 'null' }] },
+            boxes: { type: 'array', items: { $ref: '#/components/schemas/Box' } },
+            scores: { type: 'array', items: { type: 'number' } },
+            cls_res: {
+              type: 'array',
+              items: {
+                type: 'array',
+                prefixItems: [{ type: 'string' }, { type: 'number' }],
+                items: false,
+                minItems: 2,
+                maxItems: 2,
+              },
+            },
+            results: { type: 'array', items: { type: 'object', additionalProperties: true } },
+            img_list: { type: 'array', items: { $ref: '#/components/schemas/EncodedImage' } },
+            imgs: { type: 'array', items: { $ref: '#/components/schemas/EncodedImage' } },
+            txts: { type: 'array', items: { type: 'string' } },
+            word_results: { type: 'array', items: {} },
+            lang_rec: { type: 'string' },
+            elapse_list: { type: 'array', items: { type: 'number' }, minItems: 3, maxItems: 3 },
+            elapse: { type: 'number' },
+          },
+          additionalProperties: true,
         },
         OcrResult: {
           type: 'object',

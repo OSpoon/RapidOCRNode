@@ -2,6 +2,7 @@ import type { RapidOCRResult } from '../../src/shared/types.js'
 import { Buffer } from 'node:buffer'
 import sharp from 'sharp'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
+import { RapidOCR } from '../../src/pipeline/rapidocr.js'
 import { createRapidOCRServer } from '../../src/server/api.js'
 
 const openServers: Array<Awaited<ReturnType<typeof createRapidOCRServer>>> = []
@@ -13,6 +14,7 @@ beforeAll(async () => {
 
 afterEach(async () => {
   await Promise.all(openServers.splice(0).map(server => server.close()))
+  vi.restoreAllMocks()
 })
 
 describe('rapidOCR HTTP API', () => {
@@ -25,10 +27,32 @@ describe('rapidOCR HTTP API', () => {
     const document = (await app.inject('/openapi.json')).json()
     expect(document.openapi).toBe('3.1.0')
     expect(document.paths['/v1/ocr'].post.operationId).toBe('recognizeImage')
-    expect(document.components.schemas.OcrOptions.properties.structured_fields).toMatchObject({ type: 'object', minProperties: 1 })
+    expect(document.components.schemas.OcrOptions.properties.structuredFields).toMatchObject({ type: 'object', minProperties: 1 })
     expect(document.components.schemas.OcrResult.properties.structured.$ref).toBe('#/components/schemas/StructuredResult')
     app.setRapidOcrReady(true)
     expect((await app.inject('/health/ready')).statusCode).toBe(200)
+  })
+
+  it('accepts the same flat OCR options as RapidOCR.create', async () => {
+    const fakeOcr = {
+      close: vi.fn(async () => {}),
+      recognize: vi.fn(async () => makeResult()),
+      warmup: vi.fn(async () => {}),
+    }
+    const create = vi.spyOn(RapidOCR, 'create').mockResolvedValue(fakeOcr as never)
+    const app = await createRapidOCRServer({
+      logger: false,
+      executionProviders: ['webgpu', 'cpu'],
+      detectionExecutionProviders: ['cpu'],
+      recognitionExecutionProviders: ['webgpu', 'cpu'],
+    })
+    openServers.push(app)
+
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({
+      executionProviders: ['webgpu', 'cpu'],
+      detectionExecutionProviders: ['cpu'],
+      recognitionExecutionProviders: ['webgpu', 'cpu'],
+    }))
   })
 
   it('runs one full OCR call and serializes the upstream fields for JSON transport', async () => {
@@ -37,7 +61,7 @@ describe('rapidOCR HTTP API', () => {
     openServers.push(app)
     const { headers, payload } = multipartImage({
       file: sampleImage,
-      options: JSON.stringify({ return_word_boxes: true, include_image: true }),
+      options: JSON.stringify({ useDetection: false, boxThreshold: 0.4, returnWordBoxes: true, includeImage: true }),
     })
 
     const response = await app.inject({ method: 'POST', url: '/v1/ocr', headers, payload })
@@ -55,9 +79,8 @@ describe('rapidOCR HTTP API', () => {
     })
     expect(response.json().request_id).toBeTruthy()
     expect(recognize).toHaveBeenCalledWith(expect.any(Buffer), expect.objectContaining({
-      useDetection: true,
-      useClassifier: true,
-      useRecognition: true,
+      useDetection: false,
+      boxThreshold: 0.4,
       returnWordBoxes: true,
     }))
   })
@@ -100,8 +123,8 @@ describe('rapidOCR HTTP API', () => {
     const upload = multipartImage({
       file: sampleImage,
       options: JSON.stringify({
-        include_image: false,
-        structured_fields: { invoiceNumber: '发票号码' },
+        includeImage: false,
+        structuredFields: { invoiceNumber: '发票号码' },
       }),
     })
 
@@ -130,7 +153,7 @@ describe('rapidOCR HTTP API', () => {
       structurer: { extract, close: vi.fn() } as never,
     })
     openServers.push(app)
-    const upload = multipartImage({ file: sampleImage, options: JSON.stringify({ structured_fields: {} }) })
+    const upload = multipartImage({ file: sampleImage, options: JSON.stringify({ structuredFields: {} }) })
 
     const response = await app.inject({ method: 'POST', url: '/v1/ocr', headers: upload.headers, payload: upload.payload })
     expect(response.statusCode).toBe(400)
@@ -190,7 +213,12 @@ describe('rapidOCR HTTP API', () => {
     expect(invalidResponse.statusCode).toBe(400)
     expect(invalidResponse.json().code).toBe('unknown_option')
 
-    const withoutImage = multipartImage({ file: sampleImage, options: JSON.stringify({ include_image: false }) })
+    const oldSnakeCase = multipartImage({ file: sampleImage, options: JSON.stringify({ include_image: false }) })
+    const oldNameResponse = await app.inject({ method: 'POST', url: '/v1/ocr', headers: oldSnakeCase.headers, payload: oldSnakeCase.payload })
+    expect(oldNameResponse.statusCode).toBe(400)
+    expect(oldNameResponse.json().code).toBe('unknown_option')
+
+    const withoutImage = multipartImage({ file: sampleImage, options: JSON.stringify({ includeImage: false }) })
     const response = await app.inject({ method: 'POST', url: '/v1/ocr', headers: withoutImage.headers, payload: withoutImage.payload })
     expect(response.statusCode).toBe(200)
     expect(response.json().img).toBeNull()

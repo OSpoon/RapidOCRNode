@@ -170,7 +170,7 @@ const ocr = await RapidOCR.create({
   classifierModel: { ocrVersion: 'PP-OCRv4', langType: 'ch', modelType: 'mobile' },
   recognitionModel: { ocrVersion: 'PP-OCRv5', langType: 'en', modelType: 'mobile' },
   returnWordBoxes: true,
-  executionProviders: ['cpu'],
+  executionProviders: ['webgpu', 'cpu'],
 })
 ~~~
 
@@ -223,7 +223,7 @@ npx rapidocr-node ./receipt.jpg
 npx rapidocr-node ./receipt.jpg --output markdown
 
 # 另存可视化结果，并返回词框
-npx rapidocr-node ./receipt.jpg --vis ./receipt-result.png --word-boxes
+npx rapidocr-node ./receipt.jpg --vis ./receipt-result.png --return-word-boxes
 
 # 检查安装并对示例图片执行一次 OCR
 npx rapidocr-node check
@@ -264,7 +264,7 @@ npm install -g rapidocr-node@latest @huggingface/transformers
 rapidocr-node ./invoice.jpg --structured-fields '{"invoiceNumber":"发票号码"}'
 ~~~
 
-结构化提取默认使用 CPU，传入 `--structured-fields` 时按需加载模型；其他选项见 `--help`。
+结构化提取默认使用 CPU，传入 `--structured-fields` 时按需加载模型。日常可用 `--structured-device`；模型 ID、量化、缓存目录等进阶项不在默认 `--help` 中列出，见下方「模型和执行后端」。
 
 模型版本和规格通过配置文件选择；可用路由通过 `--list-langs` 查询。
 
@@ -301,7 +301,7 @@ HTTP 服务适合让本机或其他应用重复提交图片。服务进程会在
 
 ~~~sh
 # 后台启动
-npx rapidocr-node serve start
+npx rapidocr-node serve start --providers webgpu,cpu
 
 # 查看地址、进程号和日志文件
 npx rapidocr-node serve status
@@ -312,6 +312,15 @@ npx rapidocr-node serve stop
 
 # 前台运行
 npx rapidocr-node serve run --host 127.0.0.1 --port 8000
+~~~
+
+以 JavaScript 创建 HTTP 服务时，使用相同的选项：
+
+~~~ts
+import { createRapidOCRServer } from 'rapidocr-node/server'
+
+const server = await createRapidOCRServer({ executionProviders: ['webgpu', 'cpu'] })
+await server.listen({ host: '127.0.0.1', port: 8000 })
 ~~~
 
 启动时可调整监听地址、端口、模型配置和资源限制：
@@ -332,21 +341,21 @@ npx --yes \
   --package=rapidocr-node@latest \
   --package=@huggingface/transformers \
   rapidocr-node serve start \
-  --structured-model onnx-community/Qwen3-0.6B-ONNX \
+  --structured-model-id onnx-community/Qwen3-0.6B-ONNX \
   --structured-max-new-tokens 512
 
 # 如果两个包都全局安装，则直接使用全局 CLI
 rapidocr-node serve start \
-  --structured-model onnx-community/Qwen3-0.6B-ONNX \
+  --structured-model-id onnx-community/Qwen3-0.6B-ONNX \
   --structured-max-new-tokens 512
 ~~~
 
-请求带有 `structured_fields` 时会运行字段提取：
+请求选项与 JavaScript `RapidOCRCallOptions` 使用相同的 camelCase 字段；`includeImage` 和 `structuredFields` 用于 HTTP 响应与结构化提取：
 
 ~~~sh
 curl -X POST http://127.0.0.1:8000/v1/ocr \
   -F 'file=@invoice.jpg' \
-  -F 'options={"include_image":false,"structured_fields":{"invoiceNumber":"发票号码","issueDate":"开票日期","totalAmount":"价税合计"}};type=application/json'
+  -F 'options={"includeImage":false,"structuredFields":{"invoiceNumber":"发票号码","issueDate":"开票日期","totalAmount":"价税合计"}};type=application/json'
 ~~~
 
 OCR 与结构化结果及耗时均包含在响应中；完整请求和响应定义见 `/openapi.json`。
@@ -372,7 +381,21 @@ OCR 与结构化结果及耗时均包含在响应中；完整请求和响应定�
 
 模型路由与 RapidOCR v3.10.0 对齐，支持 PP-OCRv4、PP-OCRv5 和 PP-OCRv6；可用路由见 **listSupportedLanguages()**。
 
-OCR 和结构化提取默认使用 **CPU**。可在 API 或配置文件中为 OCR 显式指定执行后端，也可通过 API 的 **device** 或 CLI/服务的 **--structured-device** 为结构化提取指定后端。
+OCR 走 ONNX Runtime，后端是**优先级列表**；结构化提取走 Transformers.js，后端是**单一设备**。因此 CLI 不用同一个 flag：
+
+| 入口 | OCR | 结构化提取 |
+| --- | --- | --- |
+| JavaScript / HTTP 创建 | `executionProviders: ['webgpu', 'cpu']` | `device: 'webgpu'` |
+| CLI / `serve` | `--providers webgpu,cpu` | `--structured-device webgpu` |
+
+~~~sh
+rapidocr-node ./invoice.jpg --providers webgpu,cpu
+rapidocr-node serve start --providers webgpu,cpu
+~~~
+
+列表可用逗号分隔，或用 JSON 数组传入带设备参数的 provider。分阶段覆盖（`--detection-providers`、`--classifier-providers`、`--recognition-providers`）以及结构化进阶项（`--structured-model-id`、`--structured-dtype`、`--structured-cache-directory`、`--structured-revision`、`--structured-max-new-tokens`）仍可用，但不在默认 `--help` 中显示。
+
+HTTP 服务的执行后端在启动时配置；请求体使用与 JavaScript `RapidOCRCallOptions` 相同的 camelCase 字段控制单次识别。
 
 ### 本地速度对照
 

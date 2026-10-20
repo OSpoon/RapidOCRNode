@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import type { ModelStage, OCRVersion } from './models/registry.js'
 import type { OCRStructuredFields, OCRTextStructurerOptions } from './pipeline/structured-output.js'
-import type { RapidOCROptions, RapidOCRResult } from './shared/types.js'
+import type { ExecutionProviderSelection, RapidOCROptions, RapidOCRResult } from './shared/types.js'
 import { readFile } from 'node:fs/promises'
 import { basename, resolve } from 'node:path'
 import process from 'node:process'
@@ -29,7 +29,7 @@ type CliOptions = Record<string, unknown>
 export async function runCli(args: readonly string[]): Promise<void> {
   const cli = createCli()
   try {
-    await cli.parseAsync(normalizeUpstreamAliases(args), { from: 'user' })
+    await cli.parseAsync([...args], { from: 'user' })
   }
   catch (error) {
     if (error instanceof CommanderError && error.exitCode === 0)
@@ -83,28 +83,31 @@ async function runCommand(command: CliCommand, positionalImage: string | undefin
     return
   }
 
-  const optionImage = stringOption(options.img) ?? stringOption(options.imgPath)
+  const optionImage = stringOption(options.image)
   if (positionalImage && optionImage)
-    throw new TypeError('Provide the image as a positional argument or with --img, not both.')
+    throw new TypeError('Provide the image as a positional argument or with --image, not both.')
   const imagePath = positionalImage ?? optionImage
   if (!imagePath)
     throw new TypeError('Provide an image path or URL.')
 
   const structuredFields = await readStructuredFields(stringOption(options.structuredFields))
-  if (structuredFields === undefined && (options.structuredModel !== undefined || options.structuredMaxNewTokens !== undefined || options.structuredDevice !== undefined))
-    throw new TypeError('--structured-model, --structured-device, and --structured-max-new-tokens require --structured-fields.')
-  if (structuredFields !== undefined && options.output === 'markdown')
+  if (structuredFields === undefined && [
+    options.structuredModelId,
+    options.structuredDevice,
+    options.structuredDtype,
+    options.structuredCacheDirectory,
+    options.structuredRevision,
+    options.structuredMaxNewTokens,
+  ].some(value => value !== undefined)) {
+    throw new TypeError('Structured model options require --structured-fields.')
+  }
+  if (structuredFields !== undefined && options.output === 'markdown') {
     throw new TypeError('Structured extraction requires --output json.')
+  }
 
   const ocr = await RapidOCR.create(rapidOptions)
   try {
-    const result = await ocr.recognize(imagePath, {
-      ...(options.wordBoxes === undefined && options.returnWordBox === undefined
-        ? {}
-        : { returnWordBoxes: options.wordBoxes === true || options.returnWordBox === true }),
-    })
-    const visDirectory = stringOption(options.visSaveDir) ?? '.'
-    const upstreamVis = options.visRes === true
+    const result = await ocr.recognize(imagePath)
     const visPath = options.vis
     if (visPath) {
       if (result.type !== 'ocr' && result.type !== 'empty')
@@ -116,16 +119,6 @@ async function runCommand(command: CliCommand, positionalImage: string | undefin
       if (rendered)
         process.stdout.write(`Saved visualization to ${resolve(savePath)}\n`)
     }
-    else if (upstreamVis) {
-      if (result.type !== 'ocr' && result.type !== 'empty')
-        throw new TypeError(`Visualization requires a full OCR result; received ${result.type}.`)
-      const suffix = options.wordBoxes === true || options.returnWordBox === true ? '_vis_single.png' : '_vis.png'
-      const savePath = resolve(visDirectory, `${basename(imagePath).replace(/\.[^.]+$/u, '') || 'rapidocr'}${suffix}`)
-      const rendered = await result.vis(savePath)
-      if (rendered)
-        process.stdout.write(`The vis result has saved in ${savePath}\n`)
-    }
-
     if (options.output === 'markdown') {
       if (result.type !== 'ocr' && result.type !== 'empty')
         throw new TypeError(`Markdown output requires a full OCR result; received ${result.type}.`)
@@ -157,82 +150,49 @@ async function runCommand(command: CliCommand, positionalImage: string | undefin
   }
 }
 
-/** Commander only permits one-character short options; translate upstream's legacy multi-character aliases. */
-function normalizeUpstreamAliases(args: readonly string[]): string[] {
-  const aliases: Record<string, string> = {
-    '-img': '--img_path',
-    '-vis': '--vis_res',
-    '-word': '--return_word_box',
-  }
-  return args.map((argument) => {
-    for (const [alias, option] of Object.entries(aliases)) {
-      if (argument === alias)
-        return option
-      if (argument.startsWith(`${alias}=`))
-        return `${option}${argument.slice(alias.length)}`
-    }
-    return argument
-  })
-}
-
 function createCli(): Command {
   const cli = new Command()
     .name('rapidocr-node')
     .description('Node.js OCR powered by RapidOCR models')
     .configureOutput({ writeErr: () => {} })
     .exitOverride()
-    .option('--config <path>', 'Read an upstream-style YAML/JSON config')
-    .option('--model-dir <path>', 'Model and font cache directory')
     .option('--structured-fields <json-or-path>', 'Extract fields using a JSON object or a JSON file (invoice and receipt use)')
-    .option('--structured-model <id-or-path>', 'Text model for structured extraction')
-    .addOption(new Option('--structured-device <device>', 'Execution device for structured extraction (default: cpu)').choices(['cpu', 'coreml', 'webgpu', 'cuda', 'dml']))
-    .option('--structured-max-new-tokens <count>', 'Optional generation token limit for structured extraction', parsePositiveInteger)
-    .option('--no-download', 'Disable automatic model downloads (enabled by default)')
-    .option('--list_langs, --list-langs', 'List languages supported by a task model')
+    .option('--list-langs', 'List languages supported by a task model')
     .addOption(new Option('--task <task>', 'Task for --list-langs: det, cls, or rec').choices(['det', 'cls', 'rec']))
-    .addOption(new Option('--ocr_version, --ocr-version <version>', 'PP-OCR version for --list-langs').choices(['PP-OCRv4', 'PP-OCRv5', 'PP-OCRv6']))
-    .option('--model_type, --model-type <type>', 'Model type for --list-langs')
-    .option('-i, --img <path>', 'Image path or URL (optional when using a positional image)')
-    .addOption(new Option('--img_path, --img-path <path>', 'Image path or URL'))
-    .option('--lang <language>', 'Detection and recognition language route')
-    .addOption(new Option('--lang_type, --lang-type <language>', 'Detection and recognition language route'))
-    .option('--text_score, --text-score <value>', 'Minimum recognition confidence', parseFiniteNumber)
-    .option('--word-boxes', 'Return per-character/word boxes')
-    .addOption(new Option('--return_word_box, --return-word-box', 'Return per-character/word boxes'))
-    .option('--no-det', 'Disable text detection (enabled by default)')
-    .option('--no-cls', 'Disable 180-degree classification (enabled by default)')
-    .option('--no-rec', 'Disable text recognition (enabled by default)')
+    .addOption(new Option('--ocr-version <version>', 'PP-OCR version for --list-langs').choices(['PP-OCRv4', 'PP-OCRv5', 'PP-OCRv6']))
+    .option('--model-type <type>', 'Model type for --list-langs')
+    .option('-i, --image <path>', 'Image path or URL (optional when using a positional image)')
     .option('--vis [path]', 'Render and save the side-by-side visualization')
-    .option('--vis_res, --vis-res', 'Save visualization to --vis-save-dir using the upstream filename')
-    .option('--vis_save_dir, --vis-save-dir <path>', 'Directory for --vis-res output (default: .)')
-    .option('--font_path, --font-path <path>', 'Use a local visualization font')
     .addOption(new Option('--output <format>', 'Output format: json or markdown').choices(['json', 'markdown']))
     .argument('[image]', 'Image path or URL')
     .action((image: string | undefined, _options: CliOptions, command: Command) => runCommand('image', image, command.opts()))
 
+  addRapidOCROptions(cli)
+  addStructuredModelOptions(cli)
+
   cli.command('config')
     .description('Generate a RapidOCR YAML config')
-    .option('--save_cfg_file, --save-config <path>', 'Config file path (default: default_rapidocr.yaml)')
+    .option('--save-config <path>', 'Config file path (default: default_rapidocr.yaml)')
     .action((options: CliOptions, command: Command) => runCommand('config', undefined, command.optsWithGlobals()))
   cli.command('download-models')
     .description('Download models selected by the config')
-    .alias('download_models')
     .action((_options: CliOptions, command: Command) => runCommand('download-models', undefined, command.optsWithGlobals()))
   cli.command('check')
     .description('Run OCR on a sample image to check the installation')
     .action((_options: CliOptions, command: Command) => runCommand('check', undefined, command.optsWithGlobals()))
 
   const serve = cli.command('serve').description('Run the RapidOCR HTTP API service')
-  const serverOptions = (command: Command): Command => command
-    .option('--host <host>', 'HTTP bind address', '127.0.0.1')
-    .option('--port <port>', 'HTTP port', parsePort, 8000)
-    .option('--runtime-dir <path>', 'Runtime state and log directory', defaultRuntimeDirectory())
-    .option('--max-file-size <bytes>', 'Maximum uploaded image size', parsePositiveInteger, 10 * 1024 * 1024)
-    .option('--max-image-pixels <pixels>', 'Maximum decoded image pixel count', parsePositiveInteger, 20_000_000)
-    .option('--max-concurrency <count>', 'Maximum concurrent OCR requests', parsePositiveInteger, 1)
-    .option('--structured-model <id-or-path>', 'Text model for optional invoice/receipt field extraction')
-    .addOption(new Option('--structured-device <device>', 'Execution device for structured extraction (default: cpu)').choices(['cpu', 'coreml', 'webgpu', 'cuda', 'dml']))
-    .option('--structured-max-new-tokens <count>', 'Optional generation token limit for structured extraction', parsePositiveInteger)
+  const serverOptions = (command: Command): Command => {
+    const configured = command
+      .option('--host <host>', 'HTTP bind address', '127.0.0.1')
+      .option('--port <port>', 'HTTP port', parsePort, 8000)
+      .option('--runtime-dir <path>', 'Runtime state and log directory', defaultRuntimeDirectory())
+      .option('--max-file-size <bytes>', 'Maximum uploaded image size', parsePositiveInteger, 10 * 1024 * 1024)
+      .option('--max-image-pixels <pixels>', 'Maximum decoded image pixel count', parsePositiveInteger, 20_000_000)
+      .option('--max-concurrency <count>', 'Maximum concurrent OCR requests', parsePositiveInteger, 1)
+
+    return addStructuredModelOptions(addRapidOCROptions(configured))
+  }
 
   serverOptions(serve.command('run'))
     .description('Run the HTTP API in the foreground')
@@ -313,16 +273,29 @@ function makeServeArgs(action: 'run' | 'start', options: CliOptions): string[] {
     args.push('--model-dir', modelDirectory)
   if (options.download === false)
     args.push('--no-download')
-  const language = stringOption(options.lang) ?? stringOption(options.langType)
+  const language = stringOption(options.langType)
   if (language)
-    args.push('--lang', language)
-  if (typeof options.textScore === 'number')
-    args.push('--text-score', String(options.textScore))
-  if (options.wordBoxes === true || options.returnWordBox === true)
-    args.push('--word-boxes')
+    args.push('--lang-type', language)
+  if (options.detection === false)
+    args.push('--no-detection')
+  if (options.classifier === false)
+    args.push('--no-classifier')
+  if (options.recognition === false)
+    args.push('--no-recognition')
+  if (typeof options.textScoreThreshold === 'number')
+    args.push('--text-score-threshold', String(options.textScoreThreshold))
+  if (typeof options.boxThreshold === 'number')
+    args.push('--box-threshold', String(options.boxThreshold))
+  if (typeof options.unclipRatio === 'number')
+    args.push('--unclip-ratio', String(options.unclipRatio))
+  if (options.returnWordBoxes === true)
+    args.push('--return-word-boxes')
+  if (options.returnSingleCharBoxes === true)
+    args.push('--return-single-char-boxes')
   const fontPath = stringOption(options.fontPath)
   if (fontPath)
     args.push('--font-path', fontPath)
+  appendExecutionProviderArgs(args, options)
   args.push('serve', action)
   args.push('--host', stringOption(options.host) ?? '127.0.0.1')
   args.push('--port', String(numberOption(options.port, 8000)))
@@ -330,12 +303,21 @@ function makeServeArgs(action: 'run' | 'start', options: CliOptions): string[] {
   args.push('--max-file-size', String(numberOption(options.maxFileSize, 10 * 1024 * 1024)))
   args.push('--max-image-pixels', String(numberOption(options.maxImagePixels, 20_000_000)))
   args.push('--max-concurrency', String(numberOption(options.maxConcurrency, 1)))
-  const structuredModel = stringOption(options.structuredModel)
+  const structuredModel = stringOption(options.structuredModelId)
   if (structuredModel)
-    args.push('--structured-model', structuredModel)
+    args.push('--structured-model-id', structuredModel)
   const structuredDevice = stringOption(options.structuredDevice)
   if (structuredDevice)
     args.push('--structured-device', structuredDevice)
+  const structuredDtype = stringOption(options.structuredDtype)
+  if (structuredDtype)
+    args.push('--structured-dtype', structuredDtype)
+  const structuredCacheDirectory = stringOption(options.structuredCacheDirectory)
+  if (structuredCacheDirectory)
+    args.push('--structured-cache-directory', structuredCacheDirectory)
+  const structuredRevision = stringOption(options.structuredRevision)
+  if (structuredRevision)
+    args.push('--structured-revision', structuredRevision)
   const structuredMaxNewTokens = numberOption(options.structuredMaxNewTokens, 0)
   if (structuredMaxNewTokens > 0)
     args.push('--structured-max-new-tokens', String(structuredMaxNewTokens))
@@ -375,15 +357,104 @@ async function readStructuredFields(value: string | undefined): Promise<OCRStruc
 }
 
 function structuredOutputOptions(options: CliOptions, rapidOptions: RapidOCROptions): OCRTextStructurerOptions {
-  const modelId = stringOption(options.structuredModel)
+  const modelId = stringOption(options.structuredModelId)
   const device = stringOption(options.structuredDevice) as OCRTextStructurerOptions['device'] | undefined
+  const dtype = stringOption(options.structuredDtype) as OCRTextStructurerOptions['dtype'] | undefined
+  const cacheDirectory = stringOption(options.structuredCacheDirectory)
+  const revision = stringOption(options.structuredRevision)
   const maxNewTokens = typeof options.structuredMaxNewTokens === 'number' ? options.structuredMaxNewTokens : undefined
   return {
     ...(modelId === undefined ? {} : { modelId }),
     ...(device === undefined ? {} : { device }),
+    ...(dtype === undefined ? {} : { dtype }),
+    ...(cacheDirectory === undefined ? {} : { cacheDirectory }),
+    ...(revision === undefined ? {} : { revision }),
     ...(maxNewTokens === undefined ? {} : { maxNewTokens }),
     ...(rapidOptions.modelDirectory === undefined ? {} : { modelDirectory: rapidOptions.modelDirectory }),
   }
+}
+
+function addExecutionProviderOptions(command: Command): Command {
+  return command
+    .addOption(new Option('--providers <list>', 'OCR ONNX Runtime providers (priority list; default: cpu)').argParser(parseExecutionProviders))
+    .addOption(new Option('--detection-providers <list>', 'Detection ONNX Runtime providers (priority list)').argParser(parseExecutionProviders).hideHelp())
+    .addOption(new Option('--classifier-providers <list>', 'Classification ONNX Runtime providers (priority list)').argParser(parseExecutionProviders).hideHelp())
+    .addOption(new Option('--recognition-providers <list>', 'Recognition ONNX Runtime providers (priority list)').argParser(parseExecutionProviders).hideHelp())
+}
+
+function addRapidOCROptions(command: Command): Command {
+  return addExecutionProviderOptions(command
+    .option('--config <path>', 'Read an upstream-style YAML/JSON config')
+    .option('--model-dir <path>', 'Model and font cache directory')
+    .option('--no-download', 'Disable automatic model downloads (enabled by default)')
+    .option('--lang-type <language>', 'Recognition language route')
+    .option('--box-threshold <value>', 'Minimum text probability inside each detected box', parseFiniteNumber)
+    .option('--unclip-ratio <value>', 'DB polygon expansion ratio', parseFiniteNumber)
+    .option('--text-score-threshold <value>', 'Minimum recognition confidence', parseFiniteNumber)
+    .option('--return-word-boxes', 'Return Chinese character boxes and Latin/numeric word boxes')
+    .option('--return-single-char-boxes', 'Split Latin/numeric word boxes into individual character boxes')
+    .option('--no-detection', 'Disable text detection (enabled by default)')
+    .option('--no-classifier', 'Disable 180-degree classification (enabled by default)')
+    .option('--no-recognition', 'Disable text recognition (enabled by default)')
+    .option('--font-path <path>', 'Use a local visualization font'))
+}
+
+function addStructuredModelOptions(command: Command): Command {
+  return command
+    .addOption(new Option('--structured-model-id <id-or-path>', 'Text model for structured extraction').hideHelp())
+    .addOption(new Option('--structured-device <device>', 'Structured extraction device (single value; default: cpu)').choices(['cpu', 'coreml', 'webgpu', 'cuda', 'dml']))
+    .addOption(new Option('--structured-dtype <dtype>', 'Transformers.js model quantization').hideHelp())
+    .addOption(new Option('--structured-cache-directory <path>', 'Cache directory for the structured extraction model').hideHelp())
+    .addOption(new Option('--structured-revision <revision>', 'Optional immutable model revision for structured extraction').hideHelp())
+    .addOption(new Option('--structured-max-new-tokens <count>', 'Optional generation token limit for structured extraction').argParser(parsePositiveInteger).hideHelp())
+}
+
+function appendExecutionProviderArgs(args: string[], options: CliOptions): void {
+  const providerOptions = [
+    ['--providers', options.providers],
+    ['--detection-providers', options.detectionProviders],
+    ['--classifier-providers', options.classifierProviders],
+    ['--recognition-providers', options.recognitionProviders],
+  ] as const
+  for (const [flag, value] of providerOptions) {
+    if (Array.isArray(value) && value.length > 0)
+      args.push(flag, JSON.stringify(value))
+  }
+}
+
+function parseExecutionProviders(value: string): ExecutionProviderSelection {
+  const source = value.trim()
+  if (source.length === 0)
+    throw new InvalidArgumentError('Provider list must not be empty.')
+
+  let providers: unknown[]
+  if (source.startsWith('[')) {
+    try {
+      const parsed: unknown = JSON.parse(source)
+      if (!Array.isArray(parsed))
+        throw new Error('Expected an array.')
+      providers = parsed
+    }
+    catch {
+      throw new InvalidArgumentError('Provider list must be comma-separated names or a JSON array.')
+    }
+  }
+  else {
+    providers = source.split(',').map(provider => provider.trim())
+  }
+
+  if (providers.length === 0 || providers.some((provider) => {
+    if (typeof provider === 'string')
+      return provider.trim().length === 0 || provider.toLowerCase() === 'auto'
+    if (typeof provider !== 'object' || provider === null || Array.isArray(provider))
+      return true
+    const name = (provider as { name?: unknown }).name
+    return typeof name !== 'string' || name.trim().length === 0 || name.toLowerCase() === 'auto'
+  })) {
+    throw new InvalidArgumentError('Provider list must contain explicit provider names; auto is not supported.')
+  }
+
+  return providers as ExecutionProviderSelection
 }
 
 function parseRestartArgs(value: string): string[] {
@@ -417,19 +488,32 @@ function numberOption(value: unknown, fallback: number): number {
 }
 
 function toRapidOptions(options: CliOptions): RapidOCROptions {
-  const langType = stringOption(options.lang) ?? stringOption(options.langType)
-  const textScoreThreshold = typeof options.textScore === 'number' ? options.textScore : undefined
+  const langType = stringOption(options.langType)
+  const boxThreshold = typeof options.boxThreshold === 'number' ? options.boxThreshold : undefined
+  const unclipRatio = typeof options.unclipRatio === 'number' ? options.unclipRatio : undefined
+  const textScoreThreshold = typeof options.textScoreThreshold === 'number' ? options.textScoreThreshold : undefined
+  const executionProviders = Array.isArray(options.providers) ? options.providers as ExecutionProviderSelection : undefined
+  const detectionExecutionProviders = Array.isArray(options.detectionProviders) ? options.detectionProviders as ExecutionProviderSelection : undefined
+  const classifierExecutionProviders = Array.isArray(options.classifierProviders) ? options.classifierProviders as ExecutionProviderSelection : undefined
+  const recognitionExecutionProviders = Array.isArray(options.recognitionProviders) ? options.recognitionProviders as ExecutionProviderSelection : undefined
 
   return {
     ...(options.download === false ? { autoDownloadModels: false } : {}),
     ...(stringOption(options.config) === undefined ? {} : { configPath: stringOption(options.config) }),
     ...(stringOption(options.fontPath) === undefined ? {} : { fontPath: stringOption(options.fontPath) }),
     ...(stringOption(options.modelDir) === undefined ? {} : { modelDirectory: stringOption(options.modelDir) }),
-    ...(options.cls === false ? { useClassifier: false } : {}),
-    ...(options.det === false ? { useDetection: false } : {}),
-    ...(options.rec === false ? { useRecognition: false } : {}),
-    ...(options.wordBoxes === true || options.returnWordBox === true ? { returnWordBoxes: true } : {}),
+    ...(options.classifier === false ? { useClassifier: false } : {}),
+    ...(options.detection === false ? { useDetection: false } : {}),
+    ...(options.recognition === false ? { useRecognition: false } : {}),
+    ...(options.returnWordBoxes === true ? { returnWordBoxes: true } : {}),
+    ...(options.returnSingleCharBoxes === true ? { returnSingleCharBoxes: true } : {}),
+    ...(boxThreshold === undefined ? {} : { boxThreshold }),
+    ...(unclipRatio === undefined ? {} : { unclipRatio }),
     ...(textScoreThreshold === undefined ? {} : { textScoreThreshold }),
+    ...(executionProviders === undefined ? {} : { executionProviders }),
+    ...(detectionExecutionProviders === undefined ? {} : { detectionExecutionProviders }),
+    ...(classifierExecutionProviders === undefined ? {} : { classifierExecutionProviders }),
+    ...(recognitionExecutionProviders === undefined ? {} : { recognitionExecutionProviders }),
     ...(langType === undefined ? {} : { params: { 'Rec.lang_type': langType } }),
   }
 }
@@ -437,7 +521,7 @@ function toRapidOptions(options: CliOptions): RapidOCROptions {
 function parseFiniteNumber(value: string): number {
   const parsed = Number(value)
   if (!Number.isFinite(parsed))
-    throw new InvalidArgumentError('--text-score must be a finite number.')
+    throw new InvalidArgumentError('Value must be a finite number.')
   return parsed
 }
 

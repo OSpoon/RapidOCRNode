@@ -26,14 +26,14 @@ describe('rapidOCR server runtime control', () => {
         maxConcurrency: 1,
         maxImagePixels: 20_000_000,
         runtimeDir,
-        rapidOptions: {},
+        rapidOptions: { executionProviders: ['webgpu', 'cpu'], useDetection: false },
         restartArgs: ['serve', 'start', '--runtime-dir', runtimeDir],
       })
       const status = await waitForStatus(runtimeDir)
       expect(status.status).toBe('running')
       expect(status.httpPort).toBeGreaterThan(0)
       expect(create).toHaveBeenCalledOnce()
-      expect(create).toHaveBeenCalledWith({ useDetection: true, useClassifier: true, useRecognition: true })
+      expect(create).toHaveBeenCalledWith({ executionProviders: ['webgpu', 'cpu'], useDetection: false })
       expect(fakeOcr.warmup).toHaveBeenCalledOnce()
       expect(await fetch(`${status.baseUrl}/health/ready`).then(response => response.json())).toEqual({ status: 'ready' })
       await stopServer(runtimeDir)

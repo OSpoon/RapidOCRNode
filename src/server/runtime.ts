@@ -175,18 +175,13 @@ export async function runServer(options: ServerRuntimeOptions): Promise<void> {
   }
 
   try {
-    ocr = await RapidOCR.create({
-      ...options.rapidOptions,
-      useDetection: true,
-      useClassifier: true,
-      useRecognition: true,
-    })
+    ocr = await RapidOCR.create(options.rapidOptions)
     await ocr.warmup()
     app = await createRapidOCRServer({
+      ...options.rapidOptions,
       maxConcurrency: options.maxConcurrency,
       maxFileSize: options.maxFileSize,
       maxImagePixels: options.maxImagePixels,
-      rapidOptions: options.rapidOptions,
       structuredOutput: options.structuredOutput,
       ocr,
     })

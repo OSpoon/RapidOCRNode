@@ -1,7 +1,7 @@
 import { Buffer } from 'node:buffer'
 import { mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { runCli } from '../../src/cli.js'
@@ -30,12 +30,9 @@ describe('rapidocr node cli', () => {
   it('generates a supported upstream-style configuration file', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'rapidocr-node-cli-'))
     const configPath = join(directory, 'config', 'rapidocr.yaml')
-    const upstreamAliasPath = join(directory, 'config', 'rapidocr-upstream.yaml')
     try {
       await runCli(['config', '--save-config', configPath])
-      await runCli(['config', '--save_cfg_file', upstreamAliasPath])
       const config = await readFile(configPath, 'utf8')
-      expect(await readFile(upstreamAliasPath, 'utf8')).toBe(config)
       expect(config).toContain('use_det: true')
       expect(config).toContain('ocr_version: PP-OCRv6')
     }
@@ -48,8 +45,20 @@ describe('rapidocr node cli', () => {
     const write = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
     await expect(runCli(['--help'])).resolves.toBeUndefined()
     const help = write.mock.calls.map(([chunk]) => String(chunk)).join('')
-    expect(help).toContain('Disable text detection (enabled by default)')
-    expect(help).not.toMatch(/--no-det.*default: true/u)
+    expect(help).toMatch(/Disable text detection \(enabled by\s+default\)/u)
+    expect(help).toContain('--providers <list>')
+    expect(help.match(/--providers <list>/gu)).toHaveLength(1)
+    expect(help).toContain('--structured-device <device>')
+    expect(help).toContain('--text-score-threshold <value>')
+    expect(help).toContain('--return-word-boxes')
+    expect(help).not.toContain('--execution-providers')
+    expect(help).not.toContain('--detection-providers')
+    expect(help).not.toContain('--structured-model-id')
+    expect(help).not.toContain('--structured-dtype')
+    expect(help).not.toContain('--word-boxes')
+    expect(help).not.toContain('--return_word_box')
+    expect(help).not.toContain('--img_path')
+    expect(help).not.toMatch(/--no-detection.*default: true/u)
   })
 
   it('documents the HTTP server lifecycle commands and validates server limits', async () => {
@@ -60,11 +69,20 @@ describe('rapidocr node cli', () => {
     expect(help).toContain('status')
     expect(help).toContain('restart')
     expect(help).toContain('stop')
+    write.mockClear()
+    await runCli(['serve', 'start', '--help'])
+    const startHelp = write.mock.calls.map(([chunk]) => String(chunk)).join('')
+    expect(startHelp).toContain('--providers <list>')
+    expect(startHelp).toContain('--structured-device <device>')
+    expect(startHelp.match(/--providers <list>/gu)).toHaveLength(1)
+    expect(startHelp).not.toContain('--detection-providers')
+    expect(startHelp).not.toContain('--structured-model-id')
     await expect(runCli(['serve', 'run', '--port', '0'])).rejects.toThrow('Value must be a positive integer.')
   })
 
   it('rejects unknown command-line options before touching models', async () => {
     await expect(runCli(['--unknown'])).rejects.toThrow('unknown option \'--unknown\'')
+    await expect(runCli(['--img_path', 'receipt.png'])).rejects.toThrow('unknown option \'--img_path\'')
   })
 
   it('rejects missing values and extra positional arguments through Commander', async () => {
@@ -73,7 +91,7 @@ describe('rapidocr node cli', () => {
   })
 
   it('validates enum and numeric options before model initialization', async () => {
-    await expect(runCli(['--text-score', 'invalid'])).rejects.toThrow('--text-score must be a finite number.')
+    await expect(runCli(['--text-score-threshold', 'invalid'])).rejects.toThrow('Value must be a finite number.')
     await expect(runCli(['--output', 'xml'])).rejects.toThrow('Allowed choices are json, markdown.')
     await expect(runCli(['--engine', 'onnxruntime'])).rejects.toThrow('unknown option \'--engine\'')
   })
@@ -82,13 +100,13 @@ describe('rapidocr node cli', () => {
     const create = vi.spyOn(RapidOCR, 'create')
     await expect(runCli(['receipt.png', '--structured-fields', '{}'])).rejects.toThrow('Structured fields must contain at least one field.')
     expect(create).not.toHaveBeenCalled()
-    await expect(runCli(['receipt.png', '--structured-max-new-tokens', '128'])).rejects.toThrow('--structured-model, --structured-device, and --structured-max-new-tokens require --structured-fields.')
+    await expect(runCli(['receipt.png', '--structured-max-new-tokens', '128'])).rejects.toThrow('Structured model options require --structured-fields.')
     expect(create).not.toHaveBeenCalled()
   })
 
   it('lists upstream model languages using Commander-parsed options without loading OCR models', async () => {
     const write = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
-    await runCli(['--list_langs', '--task', 'rec', '--ocr_version', 'PP-OCRv5', '--model_type', 'mobile'])
+    await runCli(['--list-langs', '--task', 'rec', '--ocr-version', 'PP-OCRv5', '--model-type', 'mobile'])
     expect(write).toHaveBeenCalledWith(expect.stringContaining('arabic'))
     expect(write).toHaveBeenCalledWith(expect.stringContaining('ch'))
   })
@@ -101,14 +119,14 @@ describe('rapidocr node cli', () => {
     const create = vi.spyOn(RapidOCR, 'create').mockResolvedValue(instance as unknown as Awaited<ReturnType<typeof RapidOCR.create>>)
 
     await runCli([
-      '--img_path',
+      '--image',
       'receipt.png',
-      '--lang_type',
+      '--lang-type',
       'en',
-      '--return_word_box',
-      '--ocr_version',
+      '--return-word-boxes',
+      '--ocr-version',
       'PP-OCRv4',
-      '--model_type',
+      '--model-type',
       'server',
     ])
 
@@ -117,8 +135,41 @@ describe('rapidocr node cli', () => {
       recognitionModel: { langType: 'en', modelType: 'small', ocrVersion: 'PP-OCRv6' },
       returnWordBoxes: true,
     }))
-    expect(instance.recognize).toHaveBeenCalledWith('receipt.png', { returnWordBoxes: true })
+    expect(instance.recognize).toHaveBeenCalledWith('receipt.png')
     expect(instance.close).toHaveBeenCalledOnce()
+  })
+
+  it('passes explicit execution providers through the image CLI', async () => {
+    const instance = {
+      close: vi.fn(async () => {}),
+      recognize: vi.fn(async () => ({ type: 'empty', toJSON: () => null })),
+    }
+    const create = vi.spyOn(RapidOCR, 'create').mockResolvedValue(instance as unknown as Awaited<ReturnType<typeof RapidOCR.create>>)
+
+    await runCli([
+      'receipt.png',
+      '--providers',
+      'webgpu,cpu',
+      '--detection-providers',
+      'cpu',
+      '--recognition-providers',
+      '["webgpu","cpu"]',
+    ])
+
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({
+      executionProviders: ['webgpu', 'cpu'],
+      detectionExecutionProviders: ['cpu'],
+      recognitionExecutionProviders: ['webgpu', 'cpu'],
+    }))
+    expect(instance.close).toHaveBeenCalledOnce()
+  })
+
+  it('rejects the removed auto provider from CLI options', async () => {
+    const create = vi.spyOn(RapidOCR, 'create')
+    await expect(runCli(['receipt.png', '--providers', 'auto']))
+      .rejects
+      .toThrow('Provider list must contain explicit provider names; auto is not supported.')
+    expect(create).not.toHaveBeenCalled()
   })
 
   it('runs optional structured extraction and returns it alongside the OCR JSON', async () => {
@@ -147,7 +198,7 @@ describe('rapidocr node cli', () => {
         directory,
         '--structured-fields',
         fieldsPath,
-        '--structured-model',
+        '--structured-model-id',
         'example/receipt-model',
         '--structured-max-new-tokens',
         '512',
@@ -168,7 +219,7 @@ describe('rapidocr node cli', () => {
     }
   })
 
-  it('accepts upstream multi-character aliases and names word-box visualizations like upstream', async () => {
+  it('uses the JavaScript API names for visualization and word-box options', async () => {
     const vis = vi.fn(async () => Buffer.from('png'))
     const instance = {
       close: vi.fn(async () => {}),
@@ -176,11 +227,11 @@ describe('rapidocr node cli', () => {
     }
     const create = vi.spyOn(RapidOCR, 'create').mockResolvedValue(instance as unknown as Awaited<ReturnType<typeof RapidOCR.create>>)
 
-    await runCli(['-img', 'receipt.png', '-vis', '-word'])
+    await runCli(['receipt.png', '--vis', './receipt-result.png', '--return-word-boxes'])
 
     expect(create).toHaveBeenCalledWith(expect.objectContaining({ returnWordBoxes: true }))
-    expect(instance.recognize).toHaveBeenCalledWith('receipt.png', { returnWordBoxes: true })
-    expect(vis).toHaveBeenCalledWith(resolve('receipt_vis_single.png'))
+    expect(instance.recognize).toHaveBeenCalledWith('receipt.png')
+    expect(vis).toHaveBeenCalledWith('./receipt-result.png')
     expect(instance.close).toHaveBeenCalledOnce()
   })
 
