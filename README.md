@@ -453,7 +453,7 @@ pnpm run test:e2e
 pnpm run test:models
 ~~~
 
-`test:e2e` 对照 RapidOCR v3.10.0 固定参考验证端到端结果。`test:models` 使用真实图片验证上游登记的 42 个 ONNX 阶段模型路由及 30 个识别路由；可选执行提供程序需在匹配的系统和硬件上单独验证。覆盖范围见 [`ROADMAP.md`](./ROADMAP.md)。
+`test:e2e` 对照 RapidOCR v3.10.0 固定参考验证端到端结果。`test:models` 使用真实图片验证上游登记的 42 个 ONNX 阶段模型路由及 30 个识别路由；可选执行提供程序需在匹配的系统和硬件上单独验证。
 
 ## 许可
 
